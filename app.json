@@ -1,0 +1,109 @@
+{
+  "expo": {
+    "name": "PetCare+",
+    "slug": "petcare-plus",
+    "scheme": "petcareplus",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "splash": {
+      "image": "./assets/petcare-dog-cat.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F8FAFC"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "PetCare+ needs your location to find nearby vets and clinics.",
+        "NSLocationAlwaysUsageDescription": "PetCare+ needs your location for live tracking in emergencies.",
+        "NSCameraUsageDescription": "PetCare+ needs camera access to capture your pet's photo.",
+        "NSPhotoLibraryUsageDescription": "PetCare+ needs photo library access to upload pet photos and medical reports.",
+        "NSPhotoLibraryAddUsageDescription": "PetCare+ needs permission to save photos.",
+        "NSMicrophoneUsageDescription": "PetCare+ needs microphone access for video consultations.",
+        "NSCalendarsUsageDescription": "PetCare+ needs calendar access to add appointments and reminders.",
+        "NSContactsUsageDescription": "PetCare+ needs contacts access for emergency contact features.",
+        "NSFaceIDUsageDescription": "PetCare+ uses Face ID to unlock your saved login session."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#6C63FF"
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "READ_CALENDAR",
+        "WRITE_CALENDAR",
+        "RECORD_AUDIO",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ]
+    },
+    "plugins": [
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "PetCare+ needs location to find nearby vets and track in emergencies."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/petcare-dog-cat.png",
+          "color": "#6C63FF",
+          "sounds": []
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "PetCare+ needs access to your photos to upload pet images.",
+          "cameraPermission": "PetCare+ needs camera access to capture your pet's photo."
+        }
+      ],
+      [
+        "expo-document-picker",
+        {
+          "iCloudContainerEnvironment": "Production"
+        }
+      ],
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "PetCare+ needs calendar access to add appointments and reminders."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "PetCare+ needs access to your photo library.",
+          "savePhotosPermission": "PetCare+ needs permission to save photos.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "PetCare+ uses Face ID to unlock your saved login session."
+        }
+      ],
+      "expo-av",
+      "expo-secure-store"
+    ]
+  }
+}
+
+
