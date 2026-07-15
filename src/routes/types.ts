@@ -1,4 +1,6 @@
+import type { NavigatorScreenParams } from '@react-navigation/native';
 import type { UserRole } from '../types';
+import type { AppointmentStackParamList } from '../appointments';
 
 export type AuthStackParamList = {
   Splash: undefined;
@@ -16,12 +18,13 @@ export type AuthStackParamList = {
   Privacy: undefined;
   MainTabs: undefined;
   DoctorDashboard: undefined;
+  GroomerDashboard: undefined;
   SuperAdminDashboard: undefined;
 };
 
 export type MainTabParamList = {
   Home: undefined;
-  Appointments: undefined;
+  Appointments: NavigatorScreenParams<AppointmentStackParamList> | undefined;
   Health: undefined;
   Shop: undefined;
   Profile: undefined;
@@ -58,3 +61,7 @@ export type ProfileStackParamList = {
   ProfileSettings: undefined;
   HelpSupport: undefined;
 };
+
+
+
+

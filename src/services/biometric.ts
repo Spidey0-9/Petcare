@@ -1,19 +1,20 @@
-import * as LocalAuthentication from 'expo-local-authentication';
+﻿import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 
 import { authService } from './auth';
+import { authSecurityService } from './security';
 import type { UserRole } from '../types';
 
 const BIOMETRIC_ENABLED_KEY = 'biometric_login_enabled';
 const BIOMETRIC_EMAIL_KEY = 'biometric_login_email';
 const BIOMETRIC_PASSWORD_KEY = 'biometric_login_password';
 const BIOMETRIC_ROLE_KEY = 'biometric_login_role';
+const BIOMETRIC_LAST_ENABLED_AT_KEY = 'biometric_last_enabled_at';
 
-type BiometricLoginRole = Extract<UserRole, 'pet_owner' | 'doctor'>;
+type BiometricLoginRole = Extract<UserRole, 'pet_owner' | 'doctor' | 'groomer' | 'admin' | 'super_admin'>;
 
-type SavedLogin = {
-  email: string;
-  password: string;
+type SavedBiometricPreference = {
+  email: string | null;
   role: BiometricLoginRole;
 };
 
@@ -21,25 +22,39 @@ function keyForRole(baseKey: string, role: BiometricLoginRole) {
   return `${baseKey}_${role}`;
 }
 
-async function getSavedLogin(role: BiometricLoginRole): Promise<SavedLogin | null> {
-  const [email, password] = await Promise.all([
+function promptForRole(role: BiometricLoginRole) {
+  if (role === 'doctor') return 'Unlock Doctor Login';
+  if (role === 'groomer') return 'Unlock Groomer Login';
+  if (role === 'admin' || role === 'super_admin') return 'Unlock Super Admin Login';
+  return 'Unlock Pet Owner Login';
+}
+
+async function getSavedPreference(role: BiometricLoginRole): Promise<SavedBiometricPreference | null> {
+  const [email, savedRole] = await Promise.all([
     SecureStore.getItemAsync(keyForRole(BIOMETRIC_EMAIL_KEY, role)),
-    SecureStore.getItemAsync(keyForRole(BIOMETRIC_PASSWORD_KEY, role)),
+    SecureStore.getItemAsync(keyForRole(BIOMETRIC_ROLE_KEY, role)),
   ]);
 
-  if (email && password) return { email, password, role };
+  if (savedRole === role) return { email, role };
 
-  const [legacyEmail, legacyPassword, legacyRole] = await Promise.all([
+  const [legacyEmail, legacyRole] = await Promise.all([
     SecureStore.getItemAsync(BIOMETRIC_EMAIL_KEY),
-    SecureStore.getItemAsync(BIOMETRIC_PASSWORD_KEY),
     SecureStore.getItemAsync(BIOMETRIC_ROLE_KEY),
   ]);
 
-  if (legacyEmail && legacyPassword && legacyRole === role) {
-    return { email: legacyEmail, password: legacyPassword, role };
-  }
-
+  if (legacyRole === role) return { email: legacyEmail, role };
   return null;
+}
+
+async function deleteLegacyPasswords() {
+  await Promise.all([
+    SecureStore.deleteItemAsync(BIOMETRIC_PASSWORD_KEY),
+    SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_PASSWORD_KEY, 'pet_owner')),
+    SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_PASSWORD_KEY, 'doctor')),
+    SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_PASSWORD_KEY, 'groomer')),
+    SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_PASSWORD_KEY, 'admin')),
+    SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_PASSWORD_KEY, 'super_admin')),
+  ]);
 }
 
 export const biometricService = {
@@ -49,53 +64,60 @@ export const biometricService = {
     return hasHardware && isEnrolled;
   },
 
+  getSupportedTypes: async () => {
+    return LocalAuthentication.supportedAuthenticationTypesAsync();
+  },
+
   isEnabled: async () => {
     const value = await SecureStore.getItemAsync(BIOMETRIC_ENABLED_KEY);
     return value === 'true';
   },
 
   setEnabled: async (enabled: boolean) => {
-    await SecureStore.setItemAsync(BIOMETRIC_ENABLED_KEY, enabled ? 'true' : 'false');
+    if (!enabled) {
+      await biometricService.clear();
+      return;
+    }
+    await SecureStore.setItemAsync(BIOMETRIC_ENABLED_KEY, 'true');
   },
 
   hasSavedLogin: async (role: BiometricLoginRole) => {
-    const [available, enabled, savedLogin] = await Promise.all([
+    await deleteLegacyPasswords();
+    const [available, enabled, preference] = await Promise.all([
       biometricService.isAvailable(),
       biometricService.isEnabled(),
-      getSavedLogin(role),
+      getSavedPreference(role),
     ]);
-    return available && enabled && !!savedLogin;
+    const session = await authService.getSession();
+    return available && enabled && !!preference && !!session?.user;
   },
 
-  saveLogin: async (email: string, password: string, role: BiometricLoginRole) => {
-    if (!await biometricService.isAvailable()) return false;
-
-    await Promise.all([
-      SecureStore.setItemAsync(keyForRole(BIOMETRIC_EMAIL_KEY, role), email),
-      SecureStore.setItemAsync(keyForRole(BIOMETRIC_PASSWORD_KEY, role), password),
-      SecureStore.setItemAsync(keyForRole(BIOMETRIC_ROLE_KEY, role), role),
-      SecureStore.setItemAsync(BIOMETRIC_EMAIL_KEY, email),
-      SecureStore.setItemAsync(BIOMETRIC_PASSWORD_KEY, password),
-      SecureStore.setItemAsync(BIOMETRIC_ROLE_KEY, role),
-      biometricService.setEnabled(true),
-    ]);
-
-    return true;
+  saveLogin: async (email: string | undefined, _password: string | undefined, role: BiometricLoginRole) => {
+    return biometricService.enableAfterLogin(email, role);
   },
 
-  // Clears saved biometric credentials. Use only when disabling biometrics or when credentials become invalid.
   clear: async () => {
     await Promise.all([
       SecureStore.deleteItemAsync(BIOMETRIC_ENABLED_KEY),
       SecureStore.deleteItemAsync(BIOMETRIC_EMAIL_KEY),
       SecureStore.deleteItemAsync(BIOMETRIC_PASSWORD_KEY),
       SecureStore.deleteItemAsync(BIOMETRIC_ROLE_KEY),
+      SecureStore.deleteItemAsync(BIOMETRIC_LAST_ENABLED_AT_KEY),
       SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_EMAIL_KEY, 'pet_owner')),
       SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_PASSWORD_KEY, 'pet_owner')),
       SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_ROLE_KEY, 'pet_owner')),
       SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_EMAIL_KEY, 'doctor')),
       SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_PASSWORD_KEY, 'doctor')),
       SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_ROLE_KEY, 'doctor')),
+      SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_EMAIL_KEY, 'groomer')),
+      SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_PASSWORD_KEY, 'groomer')),
+      SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_ROLE_KEY, 'groomer')),
+      SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_EMAIL_KEY, 'admin')),
+      SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_PASSWORD_KEY, 'admin')),
+      SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_ROLE_KEY, 'admin')),
+      SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_EMAIL_KEY, 'super_admin')),
+      SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_PASSWORD_KEY, 'super_admin')),
+      SecureStore.deleteItemAsync(keyForRole(BIOMETRIC_ROLE_KEY, 'super_admin')),
     ]);
   },
 
@@ -108,51 +130,52 @@ export const biometricService = {
     return biometricService.hasSavedLogin(role);
   },
 
-  enableAfterLogin: async (email: string | undefined, password: string | undefined, role: BiometricLoginRole) => {
-    if (email && password) return biometricService.saveLogin(email, password, role);
-
+  enableAfterLogin: async (email: string | undefined, role: BiometricLoginRole) => {
+    if (!await biometricService.isAvailable()) return false;
     const session = await authService.getSession();
-    if (session?.user && await biometricService.isAvailable()) {
-      await biometricService.setEnabled(true);
-      return true;
-    }
+    if (!session?.user) return false;
 
-    return false;
+    await deleteLegacyPasswords();
+    await Promise.all([
+      authSecurityService.updateBiometricSetting(session.user.id, true),
+      SecureStore.setItemAsync(BIOMETRIC_ENABLED_KEY, 'true'),
+      SecureStore.setItemAsync(BIOMETRIC_LAST_ENABLED_AT_KEY, new Date().toISOString()),
+      SecureStore.setItemAsync(keyForRole(BIOMETRIC_ROLE_KEY, role), role),
+      SecureStore.setItemAsync(BIOMETRIC_ROLE_KEY, role),
+      email ? SecureStore.setItemAsync(keyForRole(BIOMETRIC_EMAIL_KEY, role), email) : Promise.resolve(),
+      email ? SecureStore.setItemAsync(BIOMETRIC_EMAIL_KEY, email) : Promise.resolve(),
+    ]);
+
+    return true;
+  },
+
+  disable: async () => {
+    const session = await authService.getSession();
+    if (session?.user?.id) await authSecurityService.updateBiometricSetting(session.user.id, false);
+    await biometricService.clear();
   },
 
   authenticate: async (role: BiometricLoginRole) => {
-    const savedLogin = await getSavedLogin(role);
+    await deleteLegacyPasswords();
+    const preference = await getSavedPreference(role);
     const hasSession = await biometricService.hasActiveSession();
 
-    if (!savedLogin && !hasSession) {
-      return { status: 'missing-login' as const, session: null, role: null };
+    if (!preference || !hasSession) {
+      return { status: 'missing-session' as const, session: null, role: null };
     }
 
     const result = await LocalAuthentication.authenticateAsync({
-      promptMessage: role === 'doctor' ? 'Unlock Doctor Login' : 'Unlock Pet Owner Login',
+      promptMessage: promptForRole(role),
       cancelLabel: 'Use password',
+      fallbackLabel: 'Use passcode',
       disableDeviceFallback: false,
     });
 
     if (!result.success) return { status: 'cancelled' as const, session: null, role: null };
 
-    if (hasSession) {
-      const session = await authService.getSession();
-      if (session?.user) return { status: 'success' as const, session, role };
-    }
-
-    if (!savedLogin) {
-      return { status: 'missing-login' as const, session: null, role: null };
-    }
-
-    try {
-      await authService.signInWithEmail(savedLogin.email, savedLogin.password);
-      const session = await authService.getSession();
-      if (!session?.user) return { status: 'missing-session' as const, session: null, role: savedLogin.role };
-      return { status: 'success' as const, session, role: savedLogin.role };
-    } catch (error) {
-      await biometricService.clear();
-      throw error;
-    }
+    const session = await authService.getSession();
+    if (!session?.user) return { status: 'missing-session' as const, session: null, role: null };
+    return { status: 'success' as const, session, role };
   },
 };
+

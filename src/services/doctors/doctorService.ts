@@ -5,6 +5,7 @@ import type { AppointmentRecord, DoctorRecord, MedicalRecord, PetRecord, Profile
 import { AppError, throwIfError } from '../errors';
 import { logDatabaseFailure } from '../database/databaseDiagnostics';
 import { storageService } from '../storage';
+import { backendAppointmentService } from '../appointments/appointmentService';
 
 export type DoctorProfile = DoctorRecord & {
   profile?: ProfileRecord | null;
@@ -267,7 +268,7 @@ export class DoctorService {
    * @returns A promise that resolves with the updated appointment or an error.
    */
   updateAppointmentStatus(id: string, status: AppointmentRecord['status']) {
-    return new SupabaseRepository<AppointmentRecord>(TABLES.appointments).update(id, { status });
+    return backendAppointmentService.updateStatus(id, status);
   }
 
   /**
@@ -355,3 +356,4 @@ export class DoctorService {
 }
 
 export const doctorService = new DoctorService();
+

@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
-import { colors } from '../theme/colors';
+import { LinearGradient } from 'expo-linear-gradient';
+import { colors, gradients, radii, shadows } from '../theme/colors';
 
 type Props = {
   label: string;
@@ -13,42 +14,59 @@ type Props = {
 export function PrimaryButton({ label, onPress, variant = 'primary', icon, disabled = false }: Props) {
   const isGhost = variant === 'ghost';
 
+  if (isGhost) {
+    return (
+      <Pressable onPress={onPress} disabled={disabled} style={[styles.button, styles.ghost, disabled && styles.disabled]}>
+        {icon}
+        <Text style={[styles.label, styles.ghostLabel]}>{label}</Text>
+      </Pressable>
+    );
+  }
+
   return (
-    <Pressable onPress={onPress} disabled={disabled} style={[styles.button, isGhost && styles.ghost, disabled && styles.disabled]}>
-      {icon}
-      <Text style={[styles.label, isGhost && styles.ghostLabel]}>{label}</Text>
+    <Pressable onPress={onPress} disabled={disabled} style={[styles.button, disabled && styles.disabled]}>
+      <LinearGradient colors={gradients.premium} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.gradient}>
+        {icon}
+        <Text style={styles.label}>{label}</Text>
+      </LinearGradient>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   button: {
-    minHeight: 54,
-    borderRadius: 18,
-    backgroundColor: colors.primary,
+    minHeight: 56,
+    borderRadius: radii.lg,
+    overflow: 'hidden',
+    ...shadows.premium,
+  },
+  gradient: {
+    minHeight: 56,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 8,
-    shadowColor: colors.primary,
-    shadowOpacity: 0.24,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 3
+    paddingHorizontal: 18,
   },
   ghost: {
-    backgroundColor: '#F0EEFF',
-    shadowOpacity: 0
+    backgroundColor: colors.surfaceGlass,
+    borderWidth: 1,
+    borderColor: colors.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    shadowOpacity: 0,
   },
   disabled: {
-    opacity: 0.58
+    opacity: 0.58,
   },
   label: {
     color: '#FFFFFF',
     fontSize: 15,
-    fontWeight: '800'
+    fontWeight: '900',
   },
   ghostLabel: {
-    color: colors.primary
-  }
+    color: colors.primaryDark,
+  },
 });

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { colors } from '../../core/theme/colors';
+import { colors, radii, shadows } from '../../core/theme/colors';
 
 interface QuickAction {
   id: string;
@@ -16,11 +16,6 @@ interface QuickActionsProps {
   actions: QuickAction[];
 }
 
-/**
- * Quick Actions Grid
- * 5-per-row icon grid with staggered bounce-in animation
- * Scale animation on press + ripple feedback
- */
 export function QuickActions({ actions }: QuickActionsProps) {
   return (
     <View style={styles.grid}>
@@ -42,7 +37,6 @@ function QuickActionItem({
   const pressAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    // Staggered bounce-in on mount
     Animated.spring(scaleAnim, {
       toValue: 1,
       friction: 6,
@@ -50,11 +44,11 @@ function QuickActionItem({
       delay: 400 + index * 60,
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [index, scaleAnim]);
 
   const handlePressIn = () => {
     Animated.spring(pressAnim, {
-      toValue: 0.88,
+      toValue: 0.9,
       useNativeDriver: true,
       friction: 6,
     }).start();
@@ -82,19 +76,17 @@ function QuickActionItem({
         onPress={action.onPress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
-        android_ripple={{ color: action.color + '30', borderless: true, radius: 32 }}
+        android_ripple={{ color: action.color + '24', borderless: true, radius: 32 }}
       >
-        <Animated.View style={{ transform: [{ scale: pressAnim }] }}>
-          {/* Icon Circle */}
-          <View style={[styles.iconCircle, { backgroundColor: action.bgColor }]}>
+        <Animated.View style={[styles.actionShell, { transform: [{ scale: pressAnim }] }]}>
+          <View style={[styles.iconCircle, { backgroundColor: action.bgColor, borderColor: action.color + '24' }]}>
             <MaterialCommunityIcons
               name={action.icon}
-              size={26}
+              size={25}
               color={action.color}
             />
           </View>
-          {/* Label */}
-          <Text style={styles.label} numberOfLines={1}>
+          <Text style={styles.label} numberOfLines={2}>
             {action.label}
           </Text>
         </Animated.View>
@@ -108,30 +100,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    rowGap: 20,
+    rowGap: 18,
   },
   itemWrapper: {
     width: '20%',
     alignItems: 'center',
   },
+  actionShell: {
+    alignItems: 'center',
+    minHeight: 92,
+  },
   iconCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 18,
+    width: 60,
+    height: 60,
+    borderRadius: radii.lg,
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 3,
+    borderWidth: 1,
+    ...shadows.soft,
   },
   label: {
-    marginTop: 8,
-    fontSize: 11,
-    fontWeight: '700',
+    marginTop: 9,
+    fontSize: 10.5,
+    fontWeight: '800',
     color: colors.text,
     textAlign: 'center',
+    lineHeight: 13,
   },
 });

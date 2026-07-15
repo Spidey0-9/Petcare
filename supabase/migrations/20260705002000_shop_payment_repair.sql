@@ -1,4 +1,4 @@
-﻿-- Shop and payment repair migration.
+-- Shop and payment repair migration.
 -- Safe to run on an existing project: creates only missing objects and refreshes PostgREST schema cache.
 
 create extension if not exists pgcrypto;
@@ -130,12 +130,14 @@ begin
   from pg_constraint
   where conrelid = 'public.payments'::regclass
     and contype = 'c'
-    and pg_get_constraintdef(oid) like '%method%';
+    and pg_get_constraintdef(oid) like '%method%'
+  limit 1;
 
   if constraint_name is not null then
     execute format('alter table public.payments drop constraint %I', constraint_name);
   end if;
-end $$;
+end;
+$$;
 
 alter table public.payments
   add constraint payments_method_check
@@ -155,12 +157,23 @@ create index if not exists payment_gateway_sessions_provider_session_id_idx on p
 create index if not exists memberships_user_id_idx on public.memberships(user_id);
 create index if not exists memberships_status_idx on public.memberships(status);
 
-create or replace trigger set_products_updated_at before update on public.products for each row execute function public.set_updated_at();
-create or replace trigger set_cart_updated_at before update on public.cart for each row execute function public.set_updated_at();
-create or replace trigger set_orders_updated_at before update on public.orders for each row execute function public.set_updated_at();
-create or replace trigger set_payments_updated_at before update on public.payments for each row execute function public.set_updated_at();
-create or replace trigger set_payment_gateway_sessions_updated_at before update on public.payment_gateway_sessions for each row execute function public.set_updated_at();
-create or replace trigger set_memberships_updated_at before update on public.memberships for each row execute function public.set_updated_at();
+drop trigger if exists set_products_updated_at on public.products;
+create trigger set_products_updated_at before update on public.products for each row execute function public.set_updated_at();
+
+drop trigger if exists set_cart_updated_at on public.cart;
+create trigger set_cart_updated_at before update on public.cart for each row execute function public.set_updated_at();
+
+drop trigger if exists set_orders_updated_at on public.orders;
+create trigger set_orders_updated_at before update on public.orders for each row execute function public.set_updated_at();
+
+drop trigger if exists set_payments_updated_at on public.payments;
+create trigger set_payments_updated_at before update on public.payments for each row execute function public.set_updated_at();
+
+drop trigger if exists set_payment_gateway_sessions_updated_at on public.payment_gateway_sessions;
+create trigger set_payment_gateway_sessions_updated_at before update on public.payment_gateway_sessions for each row execute function public.set_updated_at();
+
+drop trigger if exists set_memberships_updated_at on public.memberships;
+create trigger set_memberships_updated_at before update on public.memberships for each row execute function public.set_updated_at();
 
 alter table public.categories enable row level security;
 alter table public.products enable row level security;

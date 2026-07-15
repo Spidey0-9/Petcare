@@ -1,5 +1,6 @@
 import * as Notifications from 'expo-notifications';
 
+import { supabase } from '../../core/services/supabase';
 import { SupabaseRepository } from '../../repositories';
 import { TABLES } from '../../constants';
 import type { NotificationRecord } from '../../types';
@@ -11,6 +12,10 @@ type CreateNotificationInput = Partial<NotificationRecord> | {
   type: string;
 };
 
+function isNotificationMetadataMissing(error: { code?: string; message?: string } | null) {
+  return error?.code === '42703' || error?.code === 'PGRST204' || /column .* does not exist/i.test(error?.message ?? '');
+}
+
 function normalizeCreateInput(input: CreateNotificationInput): Partial<NotificationRecord> {
   if ('userId' in input) {
     return {
@@ -18,7 +23,9 @@ function normalizeCreateInput(input: CreateNotificationInput): Partial<Notificat
       title: input.message,
       body: input.message,
       type: input.type,
-      data: { referenceId: input.referenceId },
+      data: { referenceId: input.referenceId, action: input.type },
+      reference_id: input.referenceId || null,
+      action: input.type,
     };
   }
   return input;
@@ -43,7 +50,7 @@ export class NotificationService {
 
   createNotification(payload: Partial<NotificationRecord>): Promise<NotificationRecord>;
   createNotification(userId: string, message: string, referenceId: string, type: string): Promise<NotificationRecord>;
-  createNotification(
+  async createNotification(
     payloadOrUserId: Partial<NotificationRecord> | string,
     message?: string,
     referenceId?: string,
@@ -52,7 +59,16 @@ export class NotificationService {
     const payload = typeof payloadOrUserId === 'string'
       ? normalizeCreateInput({ userId: payloadOrUserId, message: message ?? '', referenceId: referenceId ?? '', type: type ?? 'general' })
       : normalizeCreateInput(payloadOrUserId);
-    return this.repository.create(payload);
+
+    const { data, error } = await supabase.from(TABLES.notifications).insert(payload).select('*').single();
+    if (isNotificationMetadataMissing(error)) {
+      const { action, actor_id, organization_id, ...fallbackPayload } = payload;
+      const retry = await supabase.from(TABLES.notifications).insert(fallbackPayload).select('*').single();
+      if (retry.error) throw retry.error;
+      return retry.data as NotificationRecord;
+    }
+    if (error) throw error;
+    return data as NotificationRecord;
   }
 
   markRead(id: string) {

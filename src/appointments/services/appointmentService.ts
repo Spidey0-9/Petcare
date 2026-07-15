@@ -13,6 +13,7 @@ import {
   type Pet,
 } from '../types/appointment.types';
 import { throwIfError } from '../../services/errors';
+import { authSecurityService } from '../../services/security/authSecurityService';
 
 export type DoctorSearchResult = DoctorRecord & {
   profile: Pick<ProfileRecord, 'full_name' | 'avatar_url'>;
@@ -33,7 +34,10 @@ export type AppointmentBookingPayload = {
 };
 
 type AppointmentRow = AppointmentRecord & {
+  type?: string | null;
   appointment_type?: string | null;
+  appointment_date?: string | null;
+  appointment_time?: string | null;
   symptoms?: string | null;
   fee?: number | null;
   payment_status?: string | null;
@@ -46,9 +50,9 @@ type AppointmentRow = AppointmentRecord & {
   clinic?: ClinicRecord | null;
 };
 
-type DoctorRow = DoctorRecord & { profile?: Pick<ProfileRecord, 'full_name' | 'avatar_url'> | null; rating?: number | string | null };
+type DoctorRow = DoctorRecord & { profile?: Pick<ProfileRecord, 'full_name' | 'avatar_url'> | null; rating?: number | string | null; review_count?: number | null; clinic_id?: string | null };
 
-type ClinicRow = ClinicRecord & { city?: string | null; services?: string[] | null };
+type ClinicRow = ClinicRecord;
 
 function toBackendStatus(status: AppointmentStatus): BackendAppointmentStatus {
   if (status === AppointmentStatus.PENDING_APPROVAL) return 'pending';
@@ -77,6 +81,42 @@ function toAppointmentType(value?: string | null): AppointmentType {
     : AppointmentType.GENERAL_CHECKUP;
 }
 
+function toDatabaseAppointmentType(value?: string | null) {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  if (!normalized) return '';
+  if (normalized === AppointmentType.VIDEO_CONSULTATION || normalized === 'VIDEO') return 'VIDEO';
+  if (normalized === AppointmentType.HOME_VISIT) return 'HOME_VISIT';
+  if (normalized === AppointmentType.EMERGENCY) return 'EMERGENCY';
+  return 'CLINIC';
+}
+
+function appointmentDateFromScheduledAt(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+}
+
+function appointmentTimeFromScheduledAt(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(11, 19);
+}
+
+function validateAppointmentPayload(payload: AppointmentBookingPayload) {
+  const missing: string[] = [];
+  if (!payload.ownerId) missing.push('owner_id');
+  if (!payload.petId) missing.push('pet_id');
+  if (!payload.doctorId) missing.push('doctor_id');
+  if (!payload.clinicId) missing.push('clinic_id');
+  if (!payload.scheduledAt) missing.push('scheduled_at');
+  if (!toDatabaseAppointmentType(payload.appointmentType)) missing.push('appointment_type');
+  if (!appointmentDateFromScheduledAt(payload.scheduledAt)) missing.push('appointment_date');
+  if (!appointmentTimeFromScheduledAt(payload.scheduledAt)) missing.push('appointment_time');
+  if (missing.length > 0) {
+    throw new Error(`Appointment booking is missing required fields: ${missing.join(', ')}.`);
+  }
+}
+
 function timeSlot(value: string) {
   return new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 }
@@ -85,6 +125,177 @@ function paymentStatus(value?: string | null): PaymentStatus {
   if (value === 'paid' || value === 'completed') return PaymentStatus.PAID;
   if (value === 'refunded') return PaymentStatus.REFUNDED;
   return PaymentStatus.PENDING;
+}
+
+function isNotificationMetadataMissing(error: { code?: string; message?: string } | null) {
+  return error?.code === '42703' || error?.code === 'PGRST204' || /column .* does not exist/i.test(error?.message ?? '');
+}
+
+function appointmentStatusCopy(status: string) {
+  if (status === 'accepted' || status === 'confirmed') {
+    return { title: 'Appointment approved', body: 'Your appointment has been approved by the doctor.', type: 'appointment_approved', action: 'appointment.approved' };
+  }
+  if (status === 'rejected') {
+    return { title: 'Appointment rejected', body: 'Your appointment request was rejected. You can book another slot.', type: 'appointment_rejected', action: 'appointment.rejected' };
+  }
+  if (status === 'rescheduled') {
+    return { title: 'Appointment rescheduled', body: 'Your appointment was marked for rescheduling.', type: 'appointment_rescheduled', action: 'appointment.rescheduled' };
+  }
+  if (status === 'cancelled') {
+    return { title: 'Appointment cancelled', body: 'Your appointment was cancelled.', type: 'appointment_cancelled', action: 'appointment.cancelled' };
+  }
+  if (status === 'completed') {
+    return { title: 'Appointment completed', body: 'Your appointment has been completed.', type: 'appointment_completed', action: 'appointment.completed' };
+  }
+  return { title: 'Appointment updated', body: 'Your appointment status was updated.', type: 'appointment_updated', action: 'appointment.updated' };
+}
+
+async function insertAppointmentNotification(input: {
+  userId?: string | null;
+  title: string;
+  body: string;
+  type: string;
+  appointmentId?: string | null;
+  data?: Record<string, unknown>;
+  action?: string | null;
+  actorId?: string | null;
+  organizationId?: string | null;
+}) {
+  if (!input.userId) return;
+  const payload = {
+    user_id: input.userId,
+    title: input.title,
+    body: input.body,
+    type: input.type,
+    data: input.data ?? {},
+    reference_table: TABLES.appointments,
+    reference_id: input.appointmentId ?? null,
+    action: input.action ?? input.type,
+    actor_id: input.actorId ?? null,
+    organization_id: input.organizationId ?? null,
+  };
+  const { error } = await supabase.from(TABLES.notifications).insert(payload);
+  if (isNotificationMetadataMissing(error)) {
+    const { action, actor_id, organization_id, ...fallbackPayload } = payload;
+    const retry = await supabase.from(TABLES.notifications).insert(fallbackPayload);
+    if (retry.error) console.warn('[AppointmentWorkflow] notification insert failed:', retry.error);
+    return;
+  }
+  if (error) console.warn('[AppointmentWorkflow] notification insert failed:', error);
+}
+
+async function notifyDoctorOfNewAppointment(appointment: AppointmentRecord) {
+  const { data: doctor, error } = await supabase
+    .from(TABLES.doctors)
+    .select('profile_id')
+    .eq('id', appointment.doctor_id)
+    .maybeSingle();
+  if (error) {
+    console.warn('[AppointmentWorkflow] doctor lookup failed:', error);
+    return;
+  }
+  await insertAppointmentNotification({
+    userId: doctor?.profile_id,
+    title: 'New appointment request',
+    body: 'A pet owner booked an appointment. Review it in your pending requests.',
+    type: 'doctor_new_booking',
+    appointmentId: appointment.id,
+    data: { appointmentId: appointment.id, ownerId: appointment.owner_id, petId: appointment.pet_id, clinicId: appointment.clinic_id },
+    action: 'appointment.created',
+    actorId: appointment.owner_id,
+    organizationId: appointment.clinic_id ?? null,
+  });
+}
+
+async function notifyOwnerOfAppointmentStatus(appointment: AppointmentRecord, status: string, reason?: string) {
+  const copy = appointmentStatusCopy(status);
+  await insertAppointmentNotification({
+    userId: appointment.owner_id,
+    title: copy.title,
+    body: reason ? `${copy.body} Reason: ${reason}` : copy.body,
+    type: copy.type,
+    appointmentId: appointment.id,
+    data: { appointmentId: appointment.id, doctorId: appointment.doctor_id, status, reason: reason ?? null },
+    action: appointmentStatusCopy(status).action,
+    actorId: appointment.doctor_id ?? null,
+    organizationId: appointment.clinic_id ?? null,
+  });
+}
+function distanceInKm(origin: { latitude: number; longitude: number }, target: { latitude: number; longitude: number }) {
+  const radius = 6371;
+  const dLat = ((target.latitude - origin.latitude) * Math.PI) / 180;
+  const dLon = ((target.longitude - origin.longitude) * Math.PI) / 180;
+  const lat1 = (origin.latitude * Math.PI) / 180;
+  const lat2 = (target.latitude * Math.PI) / 180;
+  const value = Math.sin(dLat / 2) ** 2 + Math.sin(dLon / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+  return radius * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+}
+
+function normalizeStringArray(value?: string[] | null) {
+  return Array.isArray(value) ? value.filter(item => item.trim().length > 0) : [];
+}
+
+function hospitalDisplayName(clinic: ClinicRow) {
+  return clinic.hospital_name ?? clinic.name ?? 'Unnamed hospital';
+}
+
+function hospitalRejectionReasons(clinic: ClinicRow) {
+  const reasons: string[] = [];
+  if (clinic.is_active === false) reasons.push('is_active=false');
+  return reasons;
+}
+
+function openStatus(clinic: ClinicRow) {
+  if (clinic.open_24_hours || clinic.is_24x7) return 'Open 24 hours';
+  if (clinic.opening_time && clinic.closing_time) return `${clinic.opening_time} - ${clinic.closing_time}`;
+  return 'Hours not listed';
+}
+
+function mapHospital(clinic: ClinicRow, location?: { latitude: number; longitude: number }): Hospital {
+  const hasCoordinates = typeof clinic.latitude === 'number' && typeof clinic.longitude === 'number';
+  const distance = location && hasCoordinates
+    ? distanceInKm(location, { latitude: clinic.latitude ?? 0, longitude: clinic.longitude ?? 0 })
+    : null;
+  const rating = Number(clinic.average_rating ?? clinic.rating ?? 0);
+  return {
+    id: clinic.id,
+    name: clinic.hospital_name ?? clinic.name,
+    logoUrl: clinic.logo_url ?? undefined,
+    coverImage: clinic.cover_image ?? undefined,
+    galleryImages: normalizeStringArray(clinic.gallery_images),
+    address: clinic.address ?? '',
+    area: clinic.area ?? '',
+    city: clinic.city ?? '',
+    state: clinic.state ?? '',
+    pincode: clinic.pincode ?? '',
+    latitude: clinic.latitude ?? null,
+    longitude: clinic.longitude ?? null,
+    phone: clinic.phone ?? '',
+    email: clinic.email ?? '',
+    website: clinic.website ?? '',
+    description: clinic.description ?? '',
+    rating,
+    reviewCount: clinic.review_count ?? 0,
+    services: normalizeStringArray(clinic.facilities ?? clinic.departments),
+    departments: normalizeStringArray(clinic.departments),
+    facilities: normalizeStringArray(clinic.facilities),
+    consultationFee: Number(clinic.consultation_fee ?? 0),
+    totalDoctors: clinic.total_doctors ?? 0,
+    availableDoctors: clinic.available_doctors ?? 0,
+    totalBeds: clinic.total_beds ?? 0,
+    is24x7: Boolean(clinic.open_24_hours ?? clinic.is_24x7 ?? false),
+    emergencyAvailable: Boolean(clinic.emergency_available ?? false),
+    parkingAvailable: Boolean(clinic.parking_available ?? false),
+    wheelchairAccessible: Boolean(clinic.wheelchair_accessible ?? false),
+    ambulanceService: Boolean(clinic.ambulance_service ?? false),
+    pharmacyAvailable: Boolean(clinic.pharmacy_available ?? false),
+    laboratoryAvailable: Boolean(clinic.laboratory_available ?? false),
+    openingTime: clinic.opening_time ?? undefined,
+    closingTime: clinic.closing_time ?? undefined,
+    distance,
+    distanceLabel: distance === null ? 'Location unavailable' : `${distance.toFixed(1)} km Away`,
+    todayAvailability: openStatus(clinic),
+  };
 }
 
 function mapAppointment(row: AppointmentRow): Appointment {
@@ -100,7 +311,7 @@ function mapAppointment(row: AppointmentRow): Appointment {
     petId: row.pet_id,
     petName: row.pet?.name ?? 'Pet',
     petPhoto: row.pet?.image_url ?? undefined,
-    type: toAppointmentType(row.appointment_type ?? row.reason),
+    type: toAppointmentType(row.type ?? row.reason ?? row.appointment_type),
     date: row.scheduled_at,
     timeSlot: timeSlot(row.scheduled_at),
     status: toUiStatus(row.status),
@@ -152,7 +363,23 @@ export class AppointmentService {
     return allSlots.filter(slot => !bookedSlots.includes(slot));
   }
 
-  async createAppointmentAfterPayment(payload: AppointmentBookingPayload, _paymentId: string): Promise<AppointmentRecord> {
+  async createAppointmentAfterPayment(payload: AppointmentBookingPayload, paymentId: string): Promise<AppointmentRecord> {
+    validateAppointmentPayload(payload);
+
+    const databaseAppointmentType = toDatabaseAppointmentType(payload.appointmentType);
+    const appointmentDate = appointmentDateFromScheduledAt(payload.scheduledAt);
+    const appointmentTime = appointmentTimeFromScheduledAt(payload.scheduledAt);
+
+    console.info('[AppointmentCreation] creating appointment', {
+      appointment_type: databaseAppointmentType,
+      pet_id: payload.petId,
+      doctor_id: payload.doctorId,
+      clinic_id: payload.clinicId,
+      appointment_date: appointmentDate,
+      appointment_time: appointmentTime,
+      payment_id: paymentId,
+    });
+
     const { count, error: conflictError } = await supabase
       .from(TABLES.appointments)
       .select('*', { count: 'exact', head: true })
@@ -162,21 +389,57 @@ export class AppointmentService {
     throwIfError(conflictError, 'Database error checking for slot conflicts.');
     if (count && count > 0) throw new Error('This time slot was just booked. Please select a different slot.');
 
-    return this.appointments.create({
+    const appointment = await this.appointments.create({
       owner_id: payload.ownerId,
       pet_id: payload.petId,
       doctor_id: payload.doctorId,
       clinic_id: payload.clinicId,
       scheduled_at: payload.scheduledAt,
+      appointment_date: appointmentDate,
+      appointment_time: appointmentTime,
+      appointment_type: databaseAppointmentType,
+      type: payload.appointmentType,
       status: 'pending',
       reason: payload.symptoms,
+      symptoms: payload.symptoms,
       notes: payload.notes,
+      fee: payload.fee,
+      payment_status: paymentId === 'pending-payment' ? 'pending' : 'pending',
+      payment_id: paymentId === 'pending-payment' ? null : paymentId,
     });
+
+    await notifyDoctorOfNewAppointment(appointment);
+    await authSecurityService.recordAudit({
+      actorId: payload.ownerId,
+      actorRole: 'pet_owner',
+      action: 'appointment.created',
+      entityType: TABLES.appointments,
+      entityId: appointment.id,
+      metadata: {
+        doctor_id: payload.doctorId,
+        pet_id: payload.petId,
+        clinic_id: payload.clinicId,
+        scheduled_at: payload.scheduledAt,
+        appointment_type: databaseAppointmentType,
+      },
+    });
+
+    return appointment;
   }
 
   async updateAppointmentStatus(appointmentId: string, status: AppointmentStatus, reason?: string): Promise<AppointmentRecord> {
     const backendStatus = toBackendStatus(status);
-    return this.appointments.update(appointmentId, { status: backendStatus, notes: reason });
+    const updated = await this.appointments.update(appointmentId, { status: backendStatus, notes: reason });
+    await notifyOwnerOfAppointmentStatus(updated, backendStatus, reason);
+    const { data: userData } = await supabase.auth.getUser();
+    await authSecurityService.recordAudit({
+      actorId: userData.user?.id ?? null,
+      action: appointmentStatusCopy(backendStatus).action,
+      entityType: TABLES.appointments,
+      entityId: updated.id,
+      metadata: { status: backendStatus, reason: reason ?? null, doctor_id: updated.doctor_id, owner_id: updated.owner_id },
+    });
+    return updated;
   }
 
   async getCustomerAppointments(customerId: string): Promise<Appointment[]> {
@@ -224,51 +487,142 @@ export class AppointmentService {
     }));
   }
 
-  async getHospitals(): Promise<Hospital[]> {
-    const { data, error } = await supabase.from(TABLES.clinics).select('*');
-    throwIfError(error, 'Unable to load clinics.');
-    return ((data ?? []) as ClinicRow[]).map(clinic => ({
-      id: clinic.id,
-      name: clinic.name,
-      address: clinic.address ?? '',
-      city: clinic.city ?? '',
-      phone: clinic.phone ?? '',
-      rating: Number(clinic.rating ?? 0),
-      is24x7: clinic.is_24x7 ?? false,
-      distance: 0,
-      services: clinic.services ?? [],
-    }));
+  async getHospitals(location?: { latitude: number; longitude: number }): Promise<Hospital[]> {
+
+    const { data, error } = await supabase
+      .from(TABLES.clinics)
+      .select('*')
+      .range(0, 99);
+
+    if (error) {
+      console.error('[HospitalDiscovery] Supabase clinics query failed', {
+        table: TABLES.clinics,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
+      throwIfError(error, 'Unable to load hospitals.');
+    }
+
+    const rows = (data ?? []) as ClinicRow[];
+    const hospitals = rows
+      .filter(clinic => hospitalRejectionReasons(clinic).length === 0)
+      .map(clinic => mapHospital(clinic, location))
+      .sort((left, right) => {
+        if (left.distance !== null && right.distance !== null) return left.distance - right.distance;
+        if (left.distance !== null) return -1;
+        if (right.distance !== null) return 1;
+        return left.name.localeCompare(right.name);
+      });
+    return hospitals;
+  }
+
+  async getHospitalDetails(hospitalId: string, location?: { latitude: number; longitude: number }): Promise<Hospital | null> {
+    const { data, error } = await supabase
+      .from(TABLES.clinics)
+      .select('*')
+      .eq('id', hospitalId)
+      .maybeSingle();
+    throwIfError(error, 'Unable to load hospital details.');
+    return data ? mapHospital(data as ClinicRow, location) : null;
   }
 
   async getDoctorsByHospital(hospitalId: string): Promise<Doctor[]> {
+    const hospital = await this.getHospitalDetails(hospitalId);
+    const hospitalName = hospital?.name ?? '';
     const { data, error } = await supabase
       .from(TABLES.doctors)
       .select('*, profile:profiles(full_name, avatar_url)')
-      .eq('is_available', true);
-    throwIfError(error, 'Unable to load doctors.');
-    return ((data ?? []) as DoctorRow[]).map(doctor => ({
-      id: doctor.id ?? '',
-      name: doctor.profile?.full_name ?? 'Doctor',
-      photo: doctor.profile?.avatar_url ?? undefined,
-      specialization: doctor.specialization ?? '',
-      hospitalId,
-      hospitalName: doctor.clinic_name ?? '',
-      rating: Number(doctor.rating ?? 0),
-      experience: doctor.experience_years ?? 0,
-      qualification: doctor.qualification ?? '',
-      consultationFee: doctor.consultation_fee ?? 0,
-      isAvailable: doctor.is_available ?? true,
-      availableDays: [],
-      availableSlots: [],
-    }));
+      .eq('is_available', true)
+      .or(`clinic_id.eq.${hospitalId},clinic_name.eq.${hospitalName}`);
+    throwIfError(error, 'Unable to load doctors for this hospital.');
+    return ((data ?? []) as DoctorRow[]).map(doctor => {
+      const availability = doctor.availability as { days?: string[]; slots?: string[] } | null;
+      const slots = availability?.slots ?? [];
+      return {
+        id: doctor.id ?? '',
+        name: doctor.profile?.full_name ?? 'Doctor',
+        photo: doctor.profile?.avatar_url ?? undefined,
+        specialization: doctor.specialization ?? '',
+        hospitalId,
+        hospitalName: doctor.clinic_name ?? hospitalName,
+        rating: Number(doctor.rating ?? 0),
+        reviewCount: doctor.review_count ?? 0,
+        experience: doctor.experience_years ?? 0,
+        qualification: doctor.qualification ?? '',
+        consultationFee: doctor.consultation_fee ?? hospital?.consultationFee ?? 0,
+        languages: doctor.languages ?? [],
+        isAvailable: doctor.is_available ?? true,
+        availableToday: Boolean(doctor.is_available ?? true) && slots.length > 0,
+        availableDays: availability?.days ?? [],
+        availableSlots: slots,
+      };
+    });
   }
 
   async getAvailableSlots(doctorId: string, date: string): Promise<string[]> {
     return this.getDoctorAvailability(doctorId, date);
   }
 
-  async bookAppointment(_data: BookingFormData & Record<string, unknown>): Promise<void> {
-    return undefined;
+  async bookAppointment(data: BookingFormData & Record<string, unknown>): Promise<AppointmentRecord> {
+    const { data: authData } = await supabase.auth.getUser();
+    const user = authData.user;
+    if (!user) throw new Error('Please login before booking an appointment.');
+    if (!data.petId || !data.doctorId || !data.hospitalId || !data.date || !data.timeSlot || !data.type) {
+      throw new Error('Appointment booking is missing required data.');
+    }
+
+    const scheduledAt = new Date(`${data.date}T${String(data.timeSlot).slice(0, 5)}:00`).toISOString();
+    const fee = typeof data.fee === 'number' ? data.fee : 0;
+    let paymentId: string | null = null;
+
+    const { data: paymentData, error: paymentError } = await supabase
+      .from(TABLES.payments)
+      .insert({
+        user_id: user.id,
+        owner_id: user.id,
+        amount: fee,
+        currency: 'INR',
+        status: fee > 0 ? 'pending' : 'not_required',
+        method: 'online_gateway',
+        provider: 'razorpay',
+      })
+      .select('id')
+      .maybeSingle();
+
+    if (!paymentError && paymentData?.id) paymentId = paymentData.id;
+
+    const appointment = await this.createAppointmentAfterPayment({
+      ownerId: user.id,
+      petId: data.petId,
+      doctorId: data.doctorId,
+      clinicId: data.hospitalId,
+      scheduledAt,
+      appointmentType: String(data.type),
+      symptoms: typeof data.symptoms === 'string' ? data.symptoms : undefined,
+      notes: paymentId ? `payment_id:${paymentId}` : undefined,
+      fee,
+    }, paymentId ?? 'pending-payment');
+
+    if (paymentId) {
+      await supabase.from(TABLES.payments).update({ appointment_id: appointment.id }).eq('id', paymentId);
+    }
+
+    await supabase.from(TABLES.notifications).insert({
+      user_id: user.id,
+      title: 'Appointment request created',
+      body: 'Your appointment request was sent to the hospital.',
+      type: 'appointment_booked',
+      data: { appointmentId: appointment.id, doctorId: data.doctorId, hospitalId: data.hospitalId },
+      reference_table: TABLES.appointments,
+      reference_id: appointment.id,
+      action: 'appointment.created',
+      actor_id: user.id,
+      organization_id: appointment.clinic_id ?? null,
+    });
+
+    return appointment;
   }
 
   async getTodayAppointments(doctorId: string): Promise<Appointment[]> {
@@ -289,11 +643,32 @@ export class AppointmentService {
   }
 
   async addDiagnosisAndPrescription(appointmentId: string, diagnosis: string, prescription: string): Promise<AppointmentRecord> {
-    return this.appointments.update(appointmentId, { diagnosis, prescription, status: 'completed' });
+    const updated = await this.appointments.update(appointmentId, { diagnosis, prescription, status: 'completed' });
+    await notifyOwnerOfAppointmentStatus(updated, 'completed');
+    const { data: userData } = await supabase.auth.getUser();
+    await authSecurityService.recordAudit({
+      actorId: userData.user?.id ?? null,
+      action: 'appointment.completed',
+      entityType: TABLES.appointments,
+      entityId: updated.id,
+      metadata: { doctor_id: updated.doctor_id, owner_id: updated.owner_id },
+    });
+    return updated;
   }
 
   async cancelAppointment(appointmentId: string, reason?: string): Promise<AppointmentRecord> {
-    return this.appointments.update(appointmentId, { status: 'cancelled', notes: reason });
+    const updated = await this.appointments.update(appointmentId, { status: 'cancelled', notes: reason });
+    await notifyOwnerOfAppointmentStatus(updated, 'cancelled', reason);
+    const { data: userData } = await supabase.auth.getUser();
+    await authSecurityService.recordAudit({
+      actorId: userData.user?.id ?? null,
+      action: 'appointment.cancelled',
+      entityType: TABLES.appointments,
+      entityId: updated.id,
+      metadata: { reason: reason ?? null, doctor_id: updated.doctor_id, owner_id: updated.owner_id },
+      severity: 'warning',
+    });
+    return updated;
   }
 
   async rateAppointment(appointmentId: string, _rating: number, review?: string): Promise<AppointmentRecord> {
@@ -302,3 +677,8 @@ export class AppointmentService {
 }
 
 export const appointmentService = new AppointmentService();
+
+
+
+
+

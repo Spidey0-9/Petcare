@@ -6,6 +6,7 @@ import { AppScreen } from '../core/components/AppScreen';
 import { app } from '../core/constants/app';
 import { colors } from '../core/theme/colors';
 import { authService } from '../services/auth';
+import { biometricService } from '../services/biometric';
 import { onboardingService } from '../core/services/onboardingService';
 import { permissionsService } from '../services/permissions';
 import { getSupabaseProjectInfo, runDatabaseHealthCheck } from '../services/database/databaseDiagnostics';
@@ -16,17 +17,18 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'Splash'>;
 
 const SPLASH_DELAY_MS = 2200;
 
-// ── Role → destination ────────────────────────────────────────────────────────
+// â”€â”€ Role â†’ destination â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function destForRole(role: UserRole): keyof AuthStackParamList {
   if (role === 'doctor')      return 'DoctorDashboard';
+  if (role === 'groomer')     return 'GroomerDashboard';
   if (role === 'super_admin') return 'SuperAdminDashboard';
   if (role === 'admin')       return 'SuperAdminDashboard';
   if (role === 'pet_owner')   return 'MainTabs';
   throw new Error('Unsupported account role.');
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export function SplashScreen({ navigation }: Props) {
   useEffect(() => {
@@ -37,21 +39,21 @@ export function SplashScreen({ navigation }: Props) {
       if (cancelled) return;
 
       try {
-        // ── 1. Onboarding gate ──────────────────────────────────────────────
+        // â”€â”€ 1. Onboarding gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         const onboardingDone = await onboardingService.isCompleted();
         if (!onboardingDone) {
           navigation.replace('Onboarding');
           return;
         }
 
-        // ── 2. Permissions gate ─────────────────────────────────────────────
+        // â”€â”€ 2. Permissions gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         const permissionsDone = await permissionsService.isCompleted();
         if (!permissionsDone) {
           navigation.replace('Permissions');
           return;
         }
 
-        // ── 3. Database health check ────────────────────────────────────────
+        // â”€â”€ 3. Database health check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         const databaseHealth = await runDatabaseHealthCheck();
         if (!databaseHealth.ok) {
           const project = getSupabaseProjectInfo();
@@ -65,22 +67,34 @@ export function SplashScreen({ navigation }: Props) {
           return;
         }
 
-        // ── 4. Session check ────────────────────────────────────────────────
+        // â”€â”€ 4. Session check â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         const session = await authService.getSession();
         if (!session) {
           navigation.replace('Login');
           return;
         }
 
-        // ── 5. Load profile and route by role ───────────────────────────────
+        // â”€â”€ 5. Load profile and route by role â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         const profile = await authService.getCurrentProfile();
 
         if (!profile?.role) {
-          // Profile missing or role not set – fall back to Login so the
+          // Profile missing or role not set â€“ fall back to Login so the
           // user can re-authenticate and trigger profile creation.
           console.warn('[SplashScreen] No profile role found; redirecting to Login.');
           navigation.replace('Login');
           return;
+        }
+
+        if (await biometricService.hasSavedLogin(profile.role)) {
+          const biometricResult = await biometricService.authenticate(profile.role);
+          if (biometricResult.status !== 'success') {
+            Alert.alert(
+              'Biometric authentication required',
+              'Please unlock with biometrics or sign in again.',
+            );
+            navigation.replace('Login');
+            return;
+          }
         }
 
         navigation.replace(destForRole(profile.role));
@@ -104,7 +118,7 @@ export function SplashScreen({ navigation }: Props) {
       <Image source={app.petImage} style={styles.petImage} resizeMode="contain" />
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading…</Text>
+        <Text style={styles.loadingText}>Loading...</Text>
       </View>
     </AppScreen>
   );
@@ -147,3 +161,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+

@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "seed:demo-user": "node scripts/create-demo-user.mjs",
     "seed:super-admin": "node scripts/create-super-admin.mjs",
-    "seed:doctor-user": "node scripts/create-doctor-user.mjs"
+    "seed:doctor-user": "node scripts/create-doctor-user.mjs",
+    "seed:groomer-user": "node scripts/create-groomer-user.mjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~3.2.3",

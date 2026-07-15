@@ -14,6 +14,9 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { AppScreen } from '../../core/components/AppScreen';
 import { colors } from '../../core/theme/colors';
+import { TABLES } from '../../constants';
+import { supabase } from '../../core/services/supabase';
+import { useRealtimeTables } from '../../services/realtime';
 import { Appointment, AppointmentStatus } from '../types/appointment.types';
 import { appointmentService } from '../services/appointmentService';
 import { AppointmentCard } from '../components/AppointmentCard';
@@ -35,8 +38,6 @@ const STATUS_MAP: Record<string, AppointmentStatus[]> = {
   Cancelled: [AppointmentStatus.CANCELLED, AppointmentStatus.REJECTED],
 };
 
-// Demo customer ID — swap with real auth user ID
-const CUSTOMER_ID = 'c1';
 
 export function CustomerAppointmentsScreen() {
   const navigation = useNavigation<Nav>();
@@ -44,12 +45,23 @@ export function CustomerAppointmentsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState('All');
+  const [ownerId, setOwnerId] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   const load = useCallback(async (showLoader = true) => {
     if (showLoader) setLoading(true);
+    setErrorMessage('');
     try {
-      const data = await appointmentService.getCustomerAppointments(CUSTOMER_ID);
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError) throw authError;
+      const userId = authData.user?.id;
+      if (!userId) throw new Error('Please sign in to view your appointments.');
+      setOwnerId(userId);
+      const data = await appointmentService.getCustomerAppointments(userId);
       setAppointments(data as unknown as Appointment[]);
+    } catch (error) {
+      setAppointments([]);
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to load appointments.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -64,6 +76,13 @@ export function CustomerAppointmentsScreen() {
     setRefreshing(true);
     load(false);
   };
+
+  useRealtimeTables('customer-appointments', [TABLES.appointments, TABLES.payments], (_table, payload) => {
+    const row = payload.new && 'owner_id' in payload.new ? payload.new : payload.old;
+    if (!ownerId || !('owner_id' in row) || row.owner_id === ownerId) {
+      void load(false);
+    }
+  });
 
   const filtered = appointments.filter(a =>
     STATUS_MAP[activeFilter]?.includes(a.status)
@@ -81,7 +100,7 @@ export function CustomerAppointmentsScreen() {
 
   return (
     <View style={styles.root}>
-      {/* ── Header ── */}
+      {/* â”€â”€ Header â”€â”€ */}
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>My Appointments</Text>
@@ -92,7 +111,7 @@ export function CustomerAppointmentsScreen() {
         </View>
       </View>
 
-      {/* ── Stats Row ── */}
+      {/* â”€â”€ Stats Row â”€â”€ */}
       {!loading && (
         <View style={styles.statsRow}>
           <StatCard
@@ -119,18 +138,27 @@ export function CustomerAppointmentsScreen() {
         </View>
       )}
 
-      {/* ── Filters ── */}
+      {/* â”€â”€ Filters â”€â”€ */}
       <FilterChips
         filters={FILTERS}
         selected={activeFilter}
         onSelect={setActiveFilter}
       />
 
-      {/* ── List ── */}
+      {/* â”€â”€ List â”€â”€ */}
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Loading appointments...</Text>
+        </View>
+      ) : errorMessage ? (
+        <View style={styles.center}>
+          <MaterialCommunityIcons name="alert-circle-outline" size={42} color={colors.danger} />
+          <Text style={styles.errorTitle}>Appointments unavailable</Text>
+          <Text style={styles.errorText}>{errorMessage}</Text>
+          <Pressable style={styles.retryBtn} onPress={() => load()}>
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
         </View>
       ) : (
         <ScrollView
@@ -173,11 +201,11 @@ export function CustomerAppointmentsScreen() {
         </ScrollView>
       )}
 
-      {/* ── Book Appointment FAB ── */}
+      {/* â”€â”€ Book Appointment FAB â”€â”€ */}
       <Pressable
         style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
         onPress={() =>
-          navigation.navigate('BookAppointment', { customerId: CUSTOMER_ID })
+          navigation.navigate('BookAppointment')
         }
       >
         <MaterialCommunityIcons name="plus" size={20} color="#fff" />
@@ -241,6 +269,28 @@ const styles = StyleSheet.create({
   loadingText: {
     color: colors.muted,
     fontSize: 14,
+  },
+  errorTitle: {
+    fontSize: 17,
+    fontWeight: '900',
+    color: colors.text,
+  },
+  errorText: {
+    color: colors.muted,
+    fontSize: 13,
+    textAlign: 'center',
+    paddingHorizontal: 28,
+  },
+  retryBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+  },
+  retryText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
   },
   fab: {
     position: 'absolute',

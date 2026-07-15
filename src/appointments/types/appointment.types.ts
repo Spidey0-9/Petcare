@@ -118,10 +118,13 @@ export interface Doctor {
   hospitalId: string;
   hospitalName: string;
   rating: number;
+  reviewCount: number;
   experience: number;
   qualification: string;
   consultationFee: number;
+  languages: string[];
   isAvailable: boolean;
+  availableToday: boolean;
   availableDays: string[];
   availableSlots: string[];
 }
@@ -129,14 +132,41 @@ export interface Doctor {
 export interface Hospital {
   id: string;
   name: string;
+  logoUrl?: string;
+  coverImage?: string;
+  galleryImages: string[];
   address: string;
+  area: string;
   city: string;
+  state: string;
+  pincode: string;
+  latitude: number | null;
+  longitude: number | null;
   phone: string;
+  email: string;
+  website: string;
+  description: string;
   rating: number;
-  photo?: string;
+  reviewCount: number;
   services: string[];
+  departments: string[];
+  facilities: string[];
+  consultationFee: number;
+  totalDoctors: number;
+  availableDoctors: number;
+  totalBeds: number;
   is24x7: boolean;
-  distance: number;
+  emergencyAvailable: boolean;
+  parkingAvailable: boolean;
+  wheelchairAccessible: boolean;
+  ambulanceService: boolean;
+  pharmacyAvailable: boolean;
+  laboratoryAvailable: boolean;
+  openingTime?: string;
+  closingTime?: string;
+  distance: number | null;
+  distanceLabel: string;
+  todayAvailability: string;
 }
 
 export interface BookingFormData {
@@ -148,3 +178,5 @@ export interface BookingFormData {
   timeSlot?: string;
   symptoms?: string;
 }
+
+

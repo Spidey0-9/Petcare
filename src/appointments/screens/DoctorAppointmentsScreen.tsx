@@ -13,6 +13,10 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { colors } from '../../core/theme/colors';
+import { authService } from '../../services/auth';
+import { doctorService } from '../../services/doctors';
+import { useRealtimeTables } from '../../services/realtime';
+import { TABLES } from '../../constants';
 import { Appointment, AppointmentStatus } from '../types/appointment.types';
 import { appointmentService } from '../services/appointmentService';
 import { AppointmentCard } from '../components/AppointmentCard';
@@ -24,8 +28,6 @@ type Nav = NativeStackNavigationProp<AppointmentStackParamList>;
 
 const VIEWS = ['All', 'New Requests', 'Today', 'Emergency', 'Upcoming', 'Completed'];
 
-// Demo doctor ID — swap with real auth user ID
-const DOCTOR_ID = 'd1';
 
 export function DoctorAppointmentsScreen() {
   const navigation = useNavigation<Nav>();
@@ -35,27 +37,47 @@ export function DoctorAppointmentsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeView, setActiveView] = useState('All');
+  const [doctorId, setDoctorId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const load = useCallback(async (showLoader = true) => {
     if (showLoader) setLoading(true);
+    setErrorMessage('');
     try {
+      let resolvedDoctorId = doctorId;
+      if (!resolvedDoctorId) {
+        const profile = await authService.getCurrentProfile();
+        if (!profile) throw new Error('Please login as a doctor to view appointments.');
+        const doctor = await doctorService.ensureDoctorProfile({ ...profile, role: 'doctor' });
+        if (!doctor.id) throw new Error('Doctor profile is missing an appointment identifier.');
+        resolvedDoctorId = doctor.id;
+        setDoctorId(resolvedDoctorId);
+      }
+
+      if (!resolvedDoctorId) throw new Error('Doctor profile is missing an appointment identifier.');
       const [allApts, today, emergency] = await Promise.all([
-        appointmentService.getDoctorAppointments(DOCTOR_ID),
-        appointmentService.getTodayAppointments(DOCTOR_ID),
-        appointmentService.getEmergencyAppointments(DOCTOR_ID),
+        appointmentService.getDoctorAppointments(resolvedDoctorId),
+        appointmentService.getTodayAppointments(resolvedDoctorId),
+        appointmentService.getEmergencyAppointments(resolvedDoctorId),
       ]);
       setAppointments(allApts);
       setTodayAppointments(today);
       setEmergencyAppointments(emergency);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to load doctor appointments.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [doctorId]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  useRealtimeTables('doctor-appointments-screen', [TABLES.appointments, TABLES.notifications], () => {
+    if (doctorId) void load(false);
+  });
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -155,6 +177,14 @@ export function DoctorAppointmentsScreen() {
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.primary} />
           <Text style={styles.loadingText}>Loading appointments...</Text>
+        </View>
+      ) : errorMessage ? (
+        <View style={styles.center}>
+          <MaterialCommunityIcons name="alert-circle" size={34} color={colors.danger} />
+          <Text style={styles.errorText}>{errorMessage}</Text>
+          <Pressable style={styles.retryButton} onPress={() => load()}>
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
         </View>
       ) : (
         <ScrollView
@@ -287,6 +317,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
+  },
+  errorText: {
+    marginTop: 12,
+    paddingHorizontal: 24,
+    textAlign: 'center',
+    color: colors.danger,
+    fontWeight: '700',
+  },
+  retryButton: {
+    marginTop: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+  },
+  retryText: {
+    color: '#fff',
+    fontWeight: '800',
   },
   loadingText: {
     color: colors.muted,

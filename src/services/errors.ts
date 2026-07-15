@@ -1,4 +1,4 @@
-﻿export class AppError extends Error {
+export class AppError extends Error {
   code?: string;
   status?: number;
   hint?: string | null;
@@ -72,6 +72,16 @@ export function classifySupabaseError(error: unknown): DatabaseErrorCategory {
   }
 
   if (
+    code === '23502' ||
+    code === '23503' ||
+    code === '23505' ||
+    code === '23514' ||
+    code === '22P02' ||
+    code === '22001'
+  ) {
+    return 'validation_error';
+  }
+  if (
     code === 'PGRST200' ||
     code === 'PGRST204' ||
     combined.includes('schema cache') ||
@@ -94,16 +104,6 @@ export function classifySupabaseError(error: unknown): DatabaseErrorCategory {
     return 'not_found';
   }
 
-  if (
-    code === '23502' ||
-    code === '23503' ||
-    code === '23505' ||
-    code === '23514' ||
-    code === '22P02' ||
-    code === '22001'
-  ) {
-    return 'validation_error';
-  }
 
   if (
     combined.includes('jwt') ||

@@ -3,13 +3,14 @@ import type { User } from '@supabase/supabase-js';
 import { supabase } from '../../core/services/supabase';
 import { TABLES } from '../../constants';
 import { throwIfError } from '../errors';
+import { authSecurityService } from '../security';
 import type { DoctorRecord, ProfileRecord, UserRole } from '../../types';
 
-// ── AsyncStorage keys ─────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ AsyncStorage keys Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 const TUTORIAL_KEY = 'tutorial_completed_v1';
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Types Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 type RegisterPayload = {
   email: string;
@@ -20,10 +21,10 @@ type RegisterPayload = {
   doctor?: Omit<DoctorRecord, 'id' | 'profile_id'>;
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ Helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
-const SUPPORTED_SIGNUP_ROLES: UserRole[] = ['pet_owner', 'doctor'];
-const SUPPORTED_PROFILE_ROLES: UserRole[] = ['pet_owner', 'doctor', 'admin', 'super_admin'];
+const SUPPORTED_SIGNUP_ROLES: UserRole[] = ['pet_owner', 'doctor', 'groomer'];
+const SUPPORTED_PROFILE_ROLES: UserRole[] = ['pet_owner', 'doctor', 'groomer', 'admin', 'super_admin'];
 
 function isSupportedSignupRole(role: UserRole) {
   return SUPPORTED_SIGNUP_ROLES.includes(role);
@@ -54,22 +55,55 @@ function profileFromUser(user: User, roleOverride?: UserRole): ProfileRecord {
   };
 }
 
-// ── AuthService ───────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬ AuthService Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 export class AuthService {
 
-  // ── Core sign-in / sign-up ────────────────────────────────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Core sign-in / sign-up Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
   async signInWithEmail(email: string, password: string) {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    throwIfError(error, 'Invalid email or password.');
-    if (data.user) await this.ensureProfileForUser(data.user);
+    const normalizedEmail = email.trim().toLowerCase();
+    const { data, error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
+
+    if (error) {
+      await authSecurityService.recordLogin({
+        email: normalizedEmail,
+        method: 'password',
+        success: false,
+        failureReason: error.message,
+      });
+      throwIfError(error, 'Invalid email or password.');
+    }
+
+    if (data.user) {
+      const profile = await this.ensureProfileForUser(data.user);
+      await Promise.all([
+        authSecurityService.ensureSettings(data.user.id, profile.role),
+        authSecurityService.recordDevice(data.user.id, true),
+        authSecurityService.recordLogin({
+          userId: data.user.id,
+          email: normalizedEmail,
+          method: 'password',
+          success: true,
+          role: profile.role,
+        }),
+        authSecurityService.recordAudit({
+          actorId: data.user.id,
+          actorRole: profile.role,
+          action: 'auth.login',
+          entityType: 'profile',
+          entityId: data.user.id,
+          metadata: { method: 'password' },
+        }),
+      ]);
+    }
+
     return data;
   }
 
   async registerWithEmail(payload: RegisterPayload) {
     if (!isSupportedSignupRole(payload.role)) {
-      throw new Error('Only pet owner and doctor accounts can be created from the app.');
+      throw new Error('Only pet owner, doctor, and groomer accounts can be created from the app.');
     }
 
     const { data, error } = await supabase.auth.signUp({
@@ -110,7 +144,52 @@ export class AuthService {
     return data;
   }
 
-  // ── Password management ───────────────────────────────────────────────────
+  async setSessionFromOAuthUrl(callbackUrl: string) {
+    const [, fragment = ''] = callbackUrl.split('#');
+    const query = callbackUrl.includes('?') ? callbackUrl.split('?')[1]?.split('#')[0] ?? '' : '';
+    const params = new URLSearchParams(fragment || query);
+    const errorDescription = params.get('error_description') ?? params.get('error');
+    if (errorDescription) throw new Error(errorDescription);
+
+    const accessToken = params.get('access_token');
+    const refreshToken = params.get('refresh_token');
+    if (!accessToken || !refreshToken) {
+      throw new Error('Google login did not return a valid session. Please try again.');
+    }
+
+    const { data, error } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+    throwIfError(error, 'Unable to complete Google login.');
+
+    if (data.user) {
+      const profile = await this.ensureProfileForUser(data.user);
+      await Promise.all([
+        authSecurityService.ensureSettings(data.user.id, profile.role),
+        authSecurityService.recordDevice(data.user.id, true),
+        authSecurityService.recordLogin({
+          userId: data.user.id,
+          email: data.user.email ?? undefined,
+          method: 'google',
+          success: true,
+          role: profile.role,
+        }),
+        authSecurityService.recordAudit({
+          actorId: data.user.id,
+          actorRole: profile.role,
+          action: 'auth.login',
+          entityType: 'profile',
+          entityId: data.user.id,
+          metadata: { method: 'google' },
+        }),
+      ]);
+    }
+
+    return data;
+  }
+
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Password management Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
   async sendPasswordReset(email: string, redirectTo?: string) {
     const { data, error } = await supabase.auth.resetPasswordForEmail(
@@ -133,7 +212,7 @@ export class AuthService {
     return data;
   }
 
-  // ── Session ───────────────────────────────────────────────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Session Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
   async getSession() {
     try {
@@ -159,7 +238,7 @@ export class AuthService {
     }
   }
 
-  // ── Profile ───────────────────────────────────────────────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Profile Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
   async getCurrentProfile(): Promise<ProfileRecord | null> {
     try {
@@ -182,7 +261,7 @@ export class AuthService {
   }
 
   async ensureProfileForUser(user: User, overrides: Partial<ProfileRecord> = {}) {
-    // ── Step 1: check whether a profile row already exists ────────────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Step 1: check whether a profile row already exists Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     // We MUST NOT overwrite an existing `role` with a metadata-derived
     // default.  The DB row is the source of truth after initial creation.
     // Example failure mode: a doctor account created by the admin script may
@@ -196,7 +275,7 @@ export class AuthService {
         .maybeSingle();
 
       if (existing?.id) {
-        // Row already exists — only patch explicitly-provided fields.
+        // Row already exists Ã¢â‚¬â€ only patch explicitly-provided fields.
         // Never overwrite role, full_name, etc. from stale metadata.
         const patch: Record<string, unknown> = { email: user.email ?? null };
         if (overrides.full_name !== undefined) patch.full_name = overrides.full_name;
@@ -227,7 +306,7 @@ export class AuthService {
       // Fall through to upsert if existence check fails
     }
 
-    // ── Step 2: no row yet — create it from metadata + overrides ─────────
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Step 2: no row yet Ã¢â‚¬â€ create it from metadata + overrides Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     const profile = {
       ...profileFromUser(user, overrides.role),
       ...overrides,
@@ -243,7 +322,7 @@ export class AuthService {
 
     const existing = await this.getCurrentProfile();
 
-    // Build upsert payload — preserve any extra columns passed in (address, city, etc.)
+    // Build upsert payload Ã¢â‚¬â€ preserve any extra columns passed in (address, city, etc.)
     const upsertPayload: ProfileRecord & Record<string, unknown> = {
       id:         user.id,
       email:      user.email ?? existing?.email ?? null,
@@ -264,7 +343,7 @@ export class AuthService {
 
   async updateCurrentRole(role: UserRole) {
     if (!isSupportedSignupRole(role)) {
-      throw new Error('Only pet owner and doctor roles can be selected in the app.');
+      throw new Error('Only pet owner, doctor, and groomer roles can be selected in the app.');
     }
     const { error } = await supabase.auth.updateUser({ data: { role } });
     throwIfError(error, 'Unable to update account role.');
@@ -291,7 +370,7 @@ export class AuthService {
     return data as DoctorRecord;
   }
 
-  // ── Phone OTP verification ────────────────────────────────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Phone OTP verification Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
   /**
    * Send an OTP to the given 10-digit Indian mobile number via Supabase Phone Auth.
@@ -299,60 +378,18 @@ export class AuthService {
    * The phone number is normalised to E.164 (+91XXXXXXXXXX) before calling Supabase.
    */
   async sendPhoneOtp(phone: string) {
-    const e164 = this.toE164(phone);
-    const { error } = await supabase.auth.signInWithOtp({ phone: e164 });
-    throwIfError(error, 'Unable to send OTP. Check your phone number and try again.');
+    throw new Error('Phone OTP login has been disabled. Please use email verification.');
   }
 
-  /**
-   * Verify the OTP that was sent to the given phone number.
-   * On success Supabase issues / refreshes the session; we then mark
-   * the profile's phone_verified column as true.
-   */
   async verifyPhoneOtp(phone: string, token: string) {
-    const e164 = this.toE164(phone);
-    const { data, error } = await supabase.auth.verifyOtp({
-      phone: e164,
-      token,
-      type: 'sms',
-    });
-    throwIfError(error, 'OTP verification failed. The code may be invalid or expired.');
-
-    // Mark phone as verified in the profiles table (best-effort)
-    if (data.user) {
-      try {
-        await supabase
-          .from(TABLES.profiles)
-          .update({ phone_verified: true, phone: phone })
-          .eq('id', data.user.id);
-      } catch (markErr) {
-        console.warn('[AuthService] verifyPhoneOtp: could not mark phone_verified', markErr);
-      }
-    }
-
-    return data;
+    throw new Error('Phone OTP login has been disabled. Please use email verification.');
   }
 
-  /**
-   * Check if the currently authenticated user's phone has been verified.
-   * Reads the phone_verified column from the profiles table.
-   */
   async isPhoneVerified(): Promise<boolean> {
-    try {
-      const user = await this.getCurrentUser();
-      if (!user) return false;
-      const { data } = await supabase
-        .from(TABLES.profiles)
-        .select('phone_verified')
-        .eq('id', user.id)
-        .maybeSingle();
-      return data?.phone_verified === true;
-    } catch {
-      return false;
-    }
+    return false;
   }
 
-  // ── Email verification ────────────────────────────────────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Email verification Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
   /**
    * Check whether the current user's email address has been confirmed.
@@ -377,7 +414,7 @@ export class AuthService {
     throwIfError(error, 'Unable to resend verification email. Please try again later.');
   }
 
-  // ── Tutorial state ────────────────────────────────────────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Tutorial state Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
   /** Returns true if the user has already completed the first-time tutorial. */
   async isTutorialCompleted(): Promise<boolean> {
@@ -407,13 +444,13 @@ export class AuthService {
     }
   }
 
-  // ── Auth state subscription ───────────────────────────────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Auth state subscription Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
   onAuthStateChange(callback: Parameters<typeof supabase.auth.onAuthStateChange>[0]) {
     return supabase.auth.onAuthStateChange(callback).data.subscription;
   }
 
-  // ── Sign-out ──────────────────────────────────────────────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Sign-out Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
   async clearLocalSession() {
     try {
@@ -425,6 +462,16 @@ export class AuthService {
 
   async signOut() {
     try {
+      const profile = await this.getCurrentProfile();
+      if (profile?.id) {
+        await authSecurityService.recordAudit({
+          actorId: profile.id,
+          actorRole: profile.role,
+          action: 'auth.logout',
+          entityType: 'profile',
+          entityId: profile.id,
+        });
+      }
       await supabase.auth.signOut();
     } catch (err) {
       await this.clearLocalSession();
@@ -432,7 +479,39 @@ export class AuthService {
     }
   }
 
-  // ── Private helpers ───────────────────────────────────────────────────────
+
+  async signOutOtherDevices() {
+    const profile = await this.getCurrentProfile();
+    if (profile?.id) {
+      await authSecurityService.recordAudit({
+        actorId: profile.id,
+        actorRole: profile.role,
+        action: 'auth.logout_other_devices',
+        entityType: 'profile',
+        entityId: profile.id,
+        severity: 'warning',
+      });
+    }
+    const { error } = await supabase.auth.signOut({ scope: 'others' });
+    throwIfError(error, 'Unable to log out other devices.');
+  }
+
+  async signOutAllDevices() {
+    const profile = await this.getCurrentProfile();
+    if (profile?.id) {
+      await authSecurityService.recordAudit({
+        actorId: profile.id,
+        actorRole: profile.role,
+        action: 'auth.logout_all_devices',
+        entityType: 'profile',
+        entityId: profile.id,
+        severity: 'warning',
+      });
+    }
+    const { error } = await supabase.auth.signOut({ scope: 'global' });
+    throwIfError(error, 'Unable to log out all devices.');
+  }
+  // Private helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
   /** Convert a 10-digit Indian mobile number to E.164 format (+91XXXXXXXXXX). */
   private toE164(phone: string): string {

@@ -125,7 +125,7 @@ export function DoctorDashboardScreen() {
 
       const [nextStats, nextAppointments, nextPatients, nextRecords] = await Promise.all([
         doctorService.getDashboardStats(nextDoctor.id),
-        doctorService.listTodaysAppointments(nextDoctor.id),
+        doctorService.listAppointments(nextDoctor.id),
         doctorService.listPatients(nextDoctor.id),
         doctorService.listPatientRecords(nextDoctor.id),
       ]);
@@ -167,7 +167,7 @@ export function DoctorDashboardScreen() {
         if (unique.has('appointments')) {
           const [nextStats, nextAppointments, nextPatients] = await Promise.all([
             doctorService.getDashboardStats(doctorId),
-            doctorService.listTodaysAppointments(doctorId),
+            doctorService.listAppointments(doctorId),
             doctorService.listPatients(doctorId),
           ]);
           setStats(nextStats);

@@ -1,5 +1,8 @@
 import React, { useRef, useState } from 'react';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import {
+  Alert,
   Animated,
   KeyboardAvoidingView,
   Platform,
@@ -20,12 +23,16 @@ import { colors } from '../core/theme/colors';
 import type { AuthStackParamList } from '../routes/types';
 import type { UserRole } from '../types';
 
-type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
-type LoginMode = Extract<UserRole, 'pet_owner' | 'doctor'>;
+WebBrowser.maybeCompleteAuthSession();
 
-// Map role → destination screen name
+type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
+type LoginMode = Extract<UserRole, 'pet_owner' | 'doctor' | 'groomer'>;
+type BiometricRole = Extract<UserRole, 'pet_owner' | 'doctor' | 'groomer' | 'admin' | 'super_admin'>;
+
+// Map role Ã¢â€ â€™ destination screen name
 function destForRole(role: UserRole): keyof AuthStackParamList {
   if (role === 'doctor')      return 'DoctorDashboard';
+  if (role === 'groomer')     return 'GroomerDashboard';
   if (role === 'super_admin') return 'SuperAdminDashboard';
   if (role === 'admin')       return 'SuperAdminDashboard';
   if (role === 'pet_owner')   return 'MainTabs';
@@ -118,6 +125,59 @@ export function LoginScreen({ navigation }: Props) {
     navigation.reset({ index: 0, routes: [{ name: destForRole(role) }] });
   }
 
+  async function promptEnableBiometric(emailAddress: string, role: BiometricRole) {
+    const [available, alreadyEnabled] = await Promise.all([
+      biometricService.isAvailable(),
+      biometricService.hasSavedLogin(role),
+    ]);
+    if (!available || alreadyEnabled) return;
+
+    Alert.alert(
+      'Enable Biometric Login?',
+      'Use your device fingerprint, Face ID, Touch ID, or passcode to unlock PetCare+ on this device. Your password will never be stored.',
+      [
+        { text: 'Not Now', style: 'cancel' },
+        {
+          text: 'Enable',
+          onPress: () => { void biometricService.enableAfterLogin(emailAddress, role); },
+        },
+      ],
+    );
+  }
+
+  async function validatePortalRole(accountRole: UserRole): Promise<boolean> {
+    if (loginMode === 'doctor' && accountRole !== 'doctor') {
+      await authService.signOut();
+      showDialog({
+        type: 'error',
+        title: 'Wrong Login Portal',
+        message: 'This account is not registered as a doctor. Please use the Pet Owner login.',
+        onDismiss: () => showDialog(null),
+      });
+      return false;
+    }
+    if (loginMode === 'groomer' && accountRole !== 'groomer') {
+      await authService.signOut();
+      showDialog({
+        type: 'error',
+        title: 'Wrong Login Portal',
+        message: 'This account is not registered as a groomer. Please use the correct login portal.',
+        onDismiss: () => showDialog(null),
+      });
+      return false;
+    }
+    if (loginMode === 'pet_owner' && (accountRole === 'doctor' || accountRole === 'groomer')) {
+      await authService.signOut();
+      showDialog({
+        type: 'error',
+        title: 'Wrong Login Portal',
+        message: accountRole === 'doctor' ? 'This is a doctor account. Please switch to Doctor Login.' : 'This is a groomer account. Please switch to Groomer Login.',
+        onDismiss: () => showDialog(null),
+      });
+      return false;
+    }
+    return true;
+  }
   async function handleLogin() {
     if (!validateFields()) return;
     setIsSubmitting(true);
@@ -147,20 +207,29 @@ export function LoginScreen({ navigation }: Props) {
         });
         return;
       }
-      if (loginMode === 'pet_owner' && accountRole === 'doctor') {
+      if (loginMode === 'groomer' && accountRole !== 'groomer') {
         await authService.signOut();
         showDialog({
           type: 'error',
           title: 'Wrong Login Portal',
-          message: 'This is a doctor account. Please switch to Doctor Login.',
+          message: 'This account is not registered as a groomer. Please use the correct login portal.',
+          onDismiss: () => showDialog(null),
+        });
+        return;
+      }
+      if (loginMode === 'pet_owner' && (accountRole === 'doctor' || accountRole === 'groomer')) {
+        await authService.signOut();
+        showDialog({
+          type: 'error',
+          title: 'Wrong Login Portal',
+          message: accountRole === 'doctor' ? 'This is a doctor account. Please switch to Doctor Login.' : 'This is a groomer account. Please switch to Groomer Login.',
           onDismiss: () => showDialog(null),
         });
         return;
       }
 
-      // Persist biometric credentials
-      const bRole = accountRole === 'doctor' ? 'doctor' : 'pet_owner';
-      await biometricService.enableAfterLogin(email.trim().toLowerCase(), password, bRole);
+      const bRole = accountRole === 'doctor' ? 'doctor' : accountRole === 'groomer' ? 'groomer' : accountRole === 'admin' || accountRole === 'super_admin' ? accountRole : 'pet_owner';
+      await promptEnableBiometric(email.trim().toLowerCase(), bRole);
 
       const displayName = profile?.full_name?.split(' ')[0] || 'there';
       showDialog({
@@ -181,17 +250,65 @@ export function LoginScreen({ navigation }: Props) {
     }
   }
 
+  async function handleGoogleLogin() {
+    setIsSubmitting(true);
+    try {
+      const redirectTo = Linking.createURL('auth/callback');
+      const oauth = await authService.signInWithGoogle(redirectTo);
+      if (!oauth.url) {
+        throw new Error('Google login could not be started. Please try again.');
+      }
+
+      const result = await WebBrowser.openAuthSessionAsync(oauth.url, redirectTo);
+      if (result.type !== 'success') return;
+
+      await authService.setSessionFromOAuthUrl(result.url);
+      const profile = await authService.getCurrentProfile();
+      if (!profile?.role) {
+        console.warn('[LoginScreen] Profile role missing after Google login; aborting navigation.');
+        showDialog({
+          type: 'error',
+          title: 'Profile Error',
+          message: 'Unable to load your account profile.\nPlease try again.',
+          onDismiss: () => showDialog(null),
+        });
+        return;
+      }
+
+      const accountRole = profile.role;
+      const allowed = await validatePortalRole(accountRole);
+      if (!allowed) return;
+
+      const displayName = profile.full_name?.split(' ')[0] || 'there';
+      showDialog({
+        type: 'success',
+        title: 'Login Successful',
+        message: `Welcome back, ${displayName}!`,
+        autoDismissMs: 1600,
+        onDismiss: () => {
+          showDialog(null);
+          navigateToRole(accountRole);
+        },
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unable to complete Google login.';
+      const mapped = mapAuthError(message);
+      showDialog({ type: 'error', title: mapped.title, message: mapped.message, onDismiss: () => showDialog(null) });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
   async function handleBiometricLogin() {
     setIsSubmitting(true);
     try {
       const result = await biometricService.authenticate(loginMode);
       if (result.status === 'cancelled') return;
-      if (result.status === 'missing-session' || result.status === 'missing-login') {
+      if (result.status === 'missing-session') {
         setHasBiometricSession(false);
         showDialog({
           type: 'info',
           title: 'Login Required',
-          message: 'Please login with email and password once. Biometric login will be enabled automatically.',
+          message: 'Please login with email and password once, then enable biometric login when prompted.',
           onDismiss: () => showDialog(null),
         });
         return;
@@ -219,12 +336,22 @@ export function LoginScreen({ navigation }: Props) {
         });
         return;
       }
-      if (loginMode === 'pet_owner' && role === 'doctor') {
+      if (loginMode === 'groomer' && role !== 'groomer') {
         await authService.signOut();
         showDialog({
           type: 'error',
           title: 'Wrong Login Portal',
-          message: 'This is a doctor account. Please switch to Doctor Login.',
+          message: 'This account is not registered as a groomer. Please use the correct login portal.',
+          onDismiss: () => showDialog(null),
+        });
+        return;
+      }
+      if (loginMode === 'pet_owner' && (role === 'doctor' || role === 'groomer')) {
+        await authService.signOut();
+        showDialog({
+          type: 'error',
+          title: 'Wrong Login Portal',
+          message: role === 'doctor' ? 'This is a doctor account. Please switch to Doctor Login.' : 'This is a groomer account. Please switch to Groomer Login.',
           onDismiss: () => showDialog(null),
         });
         return;
@@ -257,7 +384,9 @@ export function LoginScreen({ navigation }: Props) {
 
   const modeCopy = loginMode === 'doctor'
     ? { title: 'Doctor Login', subtitle: 'Access your appointments & patient care', icon: 'doctor' as const }
-    : { title: 'Welcome Back!', subtitle: 'Login to manage your pet\'s health', icon: 'paw' as const };
+    : loginMode === 'groomer'
+      ? { title: 'Groomer Login', subtitle: 'Manage grooming bookings and services', icon: 'content-cut' as const }
+      : { title: 'Welcome Back!', subtitle: 'Login to manage your pet\'s health', icon: 'paw' as const };
 
   return (
     <AppScreen>
@@ -275,6 +404,7 @@ export function LoginScreen({ navigation }: Props) {
             {([
               { value: 'pet_owner', label: 'Pet Owner', icon: 'paw' },
               { value: 'doctor',    label: 'Doctor',    icon: 'doctor' },
+              { value: 'groomer',   label: 'Groomer',   icon: 'content-cut' },
             ] as const).map(m => (
               <Pressable
                 key={m.value}
@@ -291,7 +421,7 @@ export function LoginScreen({ navigation }: Props) {
           <Text style={styles.label}>Email</Text>
           <TextInput
             style={[styles.input, emailError ? styles.inputError : null]}
-            placeholder={loginMode === 'doctor' ? 'Enter doctor email' : 'Enter your email'}
+            placeholder={loginMode === 'doctor' ? 'Enter doctor email' : loginMode === 'groomer' ? 'Enter groomer email' : 'Enter your email'}
             placeholderTextColor={colors.muted}
             keyboardType="email-address"
             autoCapitalize="none"
@@ -331,10 +461,18 @@ export function LoginScreen({ navigation }: Props) {
             disabled={isSubmitting}
           >
             <Text style={styles.loginBtnText}>
-              {isSubmitting ? 'Logging in…' : loginMode === 'doctor' ? 'Doctor Login' : 'Login'}
+              {isSubmitting ? 'Logging in...' : loginMode === 'doctor' ? 'Doctor Login' : loginMode === 'groomer' ? 'Groomer Login' : 'Login'}
             </Text>
           </Pressable>
 
+          <Pressable
+            style={[styles.googleBtn, isSubmitting && { opacity: 0.5 }]}
+            onPress={handleGoogleLogin}
+            disabled={isSubmitting}
+          >
+            <MaterialCommunityIcons name="google" size={20} color={colors.text} />
+            <Text style={styles.googleText}>Continue with Google</Text>
+          </Pressable>
           {/* Biometric */}
           {canShowBiometric && (
             <Pressable
@@ -344,8 +482,8 @@ export function LoginScreen({ navigation }: Props) {
             >
               <MaterialCommunityIcons name="fingerprint" size={22} color={colors.primary} />
               <Text style={styles.biometricText}>                {hasBiometricSession
-                  ? `Login with ${loginMode === 'doctor' ? 'doctor' : 'pet owner'} biometrics`
-                  : `Login once to enable ${loginMode === 'doctor' ? 'doctor' : 'pet owner'} biometrics`}
+                  ? `Login with ${loginMode === 'doctor' ? 'doctor' : loginMode === 'groomer' ? 'groomer' : 'pet owner'} biometrics`
+                  : `Login once to enable ${loginMode === 'doctor' ? 'doctor' : loginMode === 'groomer' ? 'groomer' : 'pet owner'} biometrics`}
               </Text>
             </Pressable>
           )}
@@ -382,6 +520,8 @@ const styles = StyleSheet.create({
   loginBtn:        { backgroundColor: colors.primary, borderRadius: 16, paddingVertical: 16, alignItems: 'center', shadowColor: colors.primary, shadowOpacity: 0.28, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 4 },
   loginBtnDisabled:{ opacity: 0.58 },
   loginBtnText:    { color: '#fff', fontSize: 15, fontWeight: '900' },
+  googleBtn:       { marginTop: 12, height: 50, borderRadius: 16, borderWidth: 1.5, borderColor: colors.line, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  googleText:      { color: colors.text, fontWeight: '900', fontSize: 14 },
   biometricBtn:    { marginTop: 14, height: 50, borderRadius: 16, borderWidth: 1.5, borderColor: colors.primary + '55', backgroundColor: colors.primary + '10', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   biometricText:   { color: colors.primary, fontWeight: '900', fontSize: 14 },
   footer:          { marginTop: 18, textAlign: 'center', color: colors.muted },

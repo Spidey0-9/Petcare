@@ -20,9 +20,9 @@ import type { AuthStackParamList } from '../routes/types';
 import type { UserRole } from '../types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
-type SignupRole = Extract<UserRole, 'pet_owner' | 'doctor'>;
+type SignupRole = Extract<UserRole, 'pet_owner' | 'doctor' | 'groomer'>;
 
-// ── Validation helpers ────────────────────────────────────────────────────────
+// â”€â”€ Validation helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function validateEmail(v: string) {
   if (!v.trim()) return 'Email is required.';
@@ -30,11 +30,7 @@ function validateEmail(v: string) {
   return '';
 }
 
-function validatePhone(v: string) {
-  if (!v) return 'Mobile number is required.';
-  if (v.length !== 10) return 'Enter exactly 10 digits.';
-  return '';
-}
+
 
 function validatePassword(v: string) {
   if (!v) return 'Password is required.';
@@ -61,7 +57,7 @@ function passwordStrength(v: string): { score: number; label: string; color: str
   return               { score, label: 'Strong', color: colors.success };
 }
 
-// ── Inline field error ────────────────────────────────────────────────────────
+// â”€â”€ Inline field error â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function FieldError({ msg }: { msg: string }) {
   if (!msg) return null;
@@ -73,12 +69,11 @@ function FieldError({ msg }: { msg: string }) {
   );
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export function RegisterScreen({ navigation }: Props) {
   const [role, setRole]                 = useState<SignupRole>('pet_owner');
   const [fullName, setFullName]         = useState('');
-  const [phone, setPhone]               = useState('');
   const [email, setEmail]               = useState('');
   const [password, setPassword]         = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -98,19 +93,11 @@ export function RegisterScreen({ navigation }: Props) {
     Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }).start();
   }, []);
 
-  // Phone: digits only, max 10
-  function handlePhone(v: string) {
-    const cleaned = v.replace(/\D/g, '').slice(0, 10);
-    setPhone(cleaned);
-    if (touched.phone) setErrors(e => ({ ...e, phone: validatePhone(cleaned) }));
-  }
-
   function handleBlur(field: string, value: string) {
     setTouched(t => ({ ...t, [field]: true }));
     let err = '';
     if (field === 'fullName') err = value.trim() ? '' : 'Full name is required.';
     if (field === 'email')    err = validateEmail(value);
-    if (field === 'phone')    err = validatePhone(value);
     if (field === 'password') err = validatePassword(value);
     if (field === 'confirm')  err = value !== password ? 'Passwords do not match.' : '';
     setErrors(e => ({ ...e, [field]: err }));
@@ -120,12 +107,11 @@ export function RegisterScreen({ navigation }: Props) {
     const errs: Record<string, string> = {
       fullName: fullName.trim() ? '' : 'Full name is required.',
       email:    validateEmail(email),
-      phone:    validatePhone(phone),
       password: validatePassword(password),
       confirm:  confirmPassword !== password ? 'Passwords do not match.' : '',
     };
     setErrors(errs);
-    setTouched({ fullName: true, email: true, phone: true, password: true, confirm: true });
+    setTouched({ fullName: true, email: true, password: true, confirm: true });
     return !Object.values(errs).some(Boolean);
   }
 
@@ -148,19 +134,22 @@ export function RegisterScreen({ navigation }: Props) {
         email:    email.trim().toLowerCase(),
         password,
         fullName: fullName.trim(),
-        phone,
         role,
       });
 
       showDialog({
         type: 'success',
         title: 'Account Created Successfully',
-        message: 'Welcome to PetCare+! Verify your phone number to continue.',
+        message: 'Welcome to PetCare+! Please verify your email to continue.',
         autoDismissMs: 2200,
         onDismiss: () => {
           showDialog(null);
-          navigation.replace('PhoneVerification', {
-            phone,
+          // TEMPORARY FIX: Skip email verification if you haven't configured SMTP in Supabase
+          // Uncomment the line below to skip email verification:
+          // navigation.replace('CompleteProfile', { role });
+          
+          // For production with email verification enabled, use this:
+          navigation.replace('EmailVerification', {
             email: email.trim().toLowerCase(),
             role,
           });
@@ -174,9 +163,6 @@ export function RegisterScreen({ navigation }: Props) {
       if (raw.toLowerCase().includes('already registered') || raw.toLowerCase().includes('already been registered')) {
         title   = 'Account Already Exists';
         message = 'An account with this email already exists. Please login or use a different email.';
-      } else if (raw.toLowerCase().includes('phone') && raw.toLowerCase().includes('unique')) {
-        title   = 'Phone Already Registered';
-        message = 'This phone number is already linked to another account.';
       } else if (raw.toLowerCase().includes('network') || raw.toLowerCase().includes('fetch')) {
         title   = 'Network Error';
         message = 'Check your internet connection and try again.';
@@ -197,13 +183,14 @@ export function RegisterScreen({ navigation }: Props) {
         <Animated.View style={{ opacity: fadeAnim }}>
           {/* Title */}
           <Text style={styles.title}>Create Account</Text>
-          <Text style={styles.subtitle}>Join PetCare+ — your pet's best companion app.</Text>
+          <Text style={styles.subtitle}>Join PetCare+ - your pet's best companion app.</Text>
 
           {/* Role toggle */}
           <View style={styles.roleSwitch}>
             {([
               { value: 'pet_owner', label: 'Pet Owner', icon: 'paw' },
               { value: 'doctor',    label: 'Doctor',    icon: 'doctor' },
+              { value: 'groomer',   label: 'Groomer',   icon: 'content-cut' },
             ] as const).map(r => (
               <Pressable
                 key={r.value}
@@ -249,28 +236,6 @@ export function RegisterScreen({ navigation }: Props) {
             onBlur={() => handleBlur('email', email)}
           />
           {touched.email && <FieldError msg={errors.email} />}
-
-          {/* Phone */}
-          <Text style={styles.label}>Mobile Number <Text style={styles.required}>*</Text></Text>
-          <View style={[styles.phoneRow, errors.phone && touched.phone ? styles.inputError : null]}>
-            <View style={styles.countryCode}>
-              <Text style={styles.countryCodeText}>🇮🇳 +91</Text>
-            </View>
-            <TextInput
-              style={styles.phoneInput}
-              placeholder="10-digit mobile number"
-              placeholderTextColor={colors.muted}
-              keyboardType="number-pad"
-              value={phone}
-              onChangeText={handlePhone}
-              onBlur={() => handleBlur('phone', phone)}
-              maxLength={10}
-            />
-            {phone.length === 10 && (
-              <MaterialCommunityIcons name="check-circle" size={18} color={colors.success} style={{ marginRight: 12 }} />
-            )}
-          </View>
-          {touched.phone && <FieldError msg={errors.phone} />}
 
           {/* Password */}
           <Text style={styles.label}>Password <Text style={styles.required}>*</Text></Text>
@@ -352,7 +317,7 @@ export function RegisterScreen({ navigation }: Props) {
             disabled={isSubmitting}
           >
             {isSubmitting
-              ? <Text style={styles.submitText}>Creating Account…</Text>
+              ? <Text style={styles.submitText}>Creating Account...</Text>
               : <Text style={styles.submitText}>Create Account</Text>
             }
           </Pressable>
@@ -384,13 +349,6 @@ const styles = StyleSheet.create({
     color: colors.text, marginBottom: 4,
   },
   inputError:      { borderColor: colors.danger },
-  phoneRow: {
-    flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: colors.line,
-    borderRadius: 14, backgroundColor: colors.surface, marginBottom: 4, overflow: 'hidden',
-  },
-  countryCode:     { paddingHorizontal: 12, paddingVertical: 14, borderRightWidth: 1, borderRightColor: colors.line, backgroundColor: colors.background },
-  countryCodeText: { fontSize: 14, fontWeight: '700', color: colors.text },
-  phoneInput:      { flex: 1, height: 54, paddingHorizontal: 12, fontSize: 14, color: colors.text },
   passRow: {
     flexDirection: 'row', alignItems: 'center', borderWidth: 1.5, borderColor: colors.line,
     borderRadius: 14, backgroundColor: colors.surface, marginBottom: 4,
@@ -419,3 +377,4 @@ const styles = StyleSheet.create({
   submitText:      { color: '#fff', fontSize: 15, fontWeight: '900' },
   footer:          { marginTop: 18, textAlign: 'center', color: colors.muted, paddingBottom: 8 },
 });
+

@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { AppScreen } from './AppScreen';
-import { colors } from '../theme/colors';
+import { colors, gradients, radii, shadows } from '../theme/colors';
 
 type Props = {
   title: string;
@@ -13,9 +14,9 @@ export function ModulePlaceholder({ title, icon, description }: Props) {
   return (
     <AppScreen>
       <View style={styles.card}>
-        <View style={styles.iconWrap}>
-          <MaterialCommunityIcons name={icon} size={34} color={colors.primary} />
-        </View>
+        <LinearGradient colors={gradients.premium} style={styles.iconWrap}>
+          <MaterialCommunityIcons name={icon} size={34} color="#fff" />
+        </LinearGradient>
         <Text style={styles.title}>{title}</Text>
         <Text style={styles.description}>{description}</Text>
       </View>
@@ -25,28 +26,33 @@ export function ModulePlaceholder({ title, icon, description }: Props) {
 
 const styles = StyleSheet.create({
   card: {
-    padding: 24,
-    borderRadius: 24,
-    backgroundColor: colors.surface,
+    padding: 28,
+    borderRadius: radii.xl,
+    backgroundColor: colors.surfaceGlass,
+    borderWidth: 1,
+    borderColor: colors.line,
     alignItems: 'center',
-    gap: 12
+    gap: 12,
+    ...shadows.soft,
   },
   iconWrap: {
-    width: 70,
-    height: 70,
+    width: 72,
+    height: 72,
     borderRadius: 24,
-    backgroundColor: '#F0EEFF',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    ...shadows.premium,
   },
   title: {
     fontSize: 24,
     fontWeight: '900',
-    color: colors.text
+    color: colors.text,
+    textAlign: 'center',
   },
   description: {
     color: colors.muted,
     textAlign: 'center',
-    lineHeight: 22
-  }
+    lineHeight: 22,
+    fontWeight: '600',
+  },
 });

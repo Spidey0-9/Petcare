@@ -16,6 +16,10 @@ export interface PetCarouselItem {
   name: string;
   breed?: string | null;
   species?: string | null;
+  gender?: string | null;
+  age?: number | null;
+  date_of_birth?: string | null;
+  vaccination_status?: string | null;
   healthScore: number;
   image_url?: string | null;
 }
@@ -29,14 +33,42 @@ interface PetCarouselProps {
 
 function petMeta(pet: PetCarouselItem, index: number) {
   const palette = [
-    { color: '#FF8F00', bgColor: '#FFF3E0' },
-    { color: '#6C63FF', bgColor: '#F0EEFF' },
+    { color: colors.accent, bgColor: colors.accentSoft },
+    { color: colors.primary, bgColor: colors.primarySoft },
     { color: '#EC4899', bgColor: '#FDF2F8' },
-    { color: '#0EA5E9', bgColor: '#E0F2FE' },
+    { color: colors.secondary, bgColor: colors.secondarySoft },
   ];
   const species = (pet.species ?? '').toLowerCase();
   const icon = species.includes('cat') ? 'cat' : species.includes('bird') ? 'bird' : 'dog';
   return { ...palette[index % palette.length], icon: icon as keyof typeof MaterialCommunityIcons.glyphMap };
+}
+
+function petAgeLabel(pet: PetCarouselItem) {
+  if (typeof pet.age === 'number') return `${pet.age}y`;
+  if (!pet.date_of_birth) return 'Age -';
+  const dob = new Date(pet.date_of_birth);
+  if (Number.isNaN(dob.getTime())) return 'Age -';
+  const now = new Date();
+  const months = Math.max(0, (now.getFullYear() - dob.getFullYear()) * 12 + now.getMonth() - dob.getMonth());
+  if (months < 12) return `${Math.max(1, months)}m`;
+  return `${Math.floor(months / 12)}y`;
+}
+
+function petGenderLabel(value?: string | null) {
+  if (!value) return 'Gender -';
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function petHealthStatus(score: number) {
+  if (score >= 85) return 'Excellent';
+  if (score >= 70) return 'Healthy';
+  if (score >= 50) return 'Watch';
+  return 'Care';
+}
+
+function vaccinationLabel(value?: string | null) {
+  if (!value) return 'Vaccines pending';
+  return value.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
 }
 
 export function PetCarousel({ pets, onPetPress, onAddPet, selectedId }: PetCarouselProps) {
@@ -74,8 +106,8 @@ function PetChip({ pet, meta, isActive, onPress }: { pet: PetCarouselItem; meta:
 
   const handlePress = () => {
     Animated.sequence([
-      Animated.spring(scaleAnim, { toValue: 0.9,  useNativeDriver: true, friction: 8 }),
-      Animated.spring(scaleAnim, { toValue: 1,    useNativeDriver: true, friction: 6 }),
+      Animated.spring(scaleAnim, { toValue: 0.9, useNativeDriver: true, friction: 8 }),
+      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, friction: 6 }),
     ]).start();
     onPress();
   };
@@ -85,20 +117,31 @@ function PetChip({ pet, meta, isActive, onPress }: { pet: PetCarouselItem; meta:
       <Animated.View
         style={[
           styles.chip,
-          { borderColor: isActive ? meta.color : colors.line, borderWidth: isActive ? 2 : 1 },
+          { borderColor: isActive ? meta.color : 'rgba(15,23,42,0.08)', borderWidth: isActive ? 2 : 1 },
           { transform: [{ scale: scaleAnim }] },
         ]}
       >
         <View style={[styles.chipAvatar, { backgroundColor: meta.bgColor }]}> 
-          {pet.image_url ? <Image source={{ uri: pet.image_url }} style={styles.petImage} /> : <MaterialCommunityIcons name={meta.icon} size={28} color={meta.color} />}
+          {pet.image_url ? <Image source={{ uri: pet.image_url }} style={styles.petImage} /> : <MaterialCommunityIcons name={meta.icon} size={32} color={meta.color} />}
           {isActive && <View style={[styles.activeDot, { backgroundColor: meta.color }]} />}
         </View>
 
-        <Text style={[styles.chipName, isActive && { color: meta.color }]}>{pet.name}</Text>
+        <Text style={[styles.chipName, isActive && { color: meta.color }]} numberOfLines={1}>{pet.name}</Text>
         <Text style={styles.chipBreed} numberOfLines={1}>{pet.breed || pet.species || 'Pet profile'}</Text>
 
-        <View style={[styles.scoreBadge, { backgroundColor: meta.bgColor }]}> 
-          <Text style={[styles.scoreBadgeText, { color: meta.color }]}>Health {pet.healthScore}</Text>
+        <View style={styles.metaRow}>
+          <Text style={styles.metaText}>{petAgeLabel(pet)}</Text>
+          <Text style={styles.metaText}>{petGenderLabel(pet.gender)}</Text>
+        </View>
+
+        <View style={styles.statusRow}>
+          <View style={[styles.scoreBadge, { backgroundColor: meta.bgColor }]}> 
+            <Text style={[styles.scoreBadgeText, { color: meta.color }]}>{pet.healthScore}</Text>
+          </View>
+          <View style={styles.statusCopy}>
+            <Text style={styles.statusText}>{petHealthStatus(pet.healthScore)}</Text>
+            <Text style={styles.vaccineText} numberOfLines={1}>{vaccinationLabel(pet.vaccination_status)}</Text>
+          </View>
         </View>
       </Animated.View>
     </Pressable>
@@ -106,59 +149,65 @@ function PetChip({ pet, meta, isActive, onPress }: { pet: PetCarouselItem; meta:
 }
 
 const styles = StyleSheet.create({
-  row: { paddingHorizontal: 0, gap: 12, paddingBottom: 4, paddingTop: 2 },
+  row: { paddingHorizontal: 0, gap: 14, paddingBottom: 6, paddingTop: 4 },
   chip: {
-    backgroundColor: colors.surface,
-    borderRadius: 20,
+    backgroundColor: colors.surfaceGlass,
+    borderRadius: 24,
     padding: 14,
-    alignItems: 'center',
-    width: 110,
-    gap: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.07,
-    shadowRadius: 8,
-    elevation: 3,
+    width: 176,
+    gap: 8,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.10,
+    shadowRadius: 22,
+    elevation: 5,
   },
   chipAvatar: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+    width: '100%',
+    height: 98,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
+    overflow: 'hidden',
   },
-  petImage: { width: '100%', height: '100%', borderRadius: 29 },
+  petImage: { width: '100%', height: '100%', borderRadius: 20 },
   activeDot: {
     position: 'absolute',
-    bottom: 2,
-    right: 2,
+    top: 8,
+    right: 8,
     width: 12,
     height: 12,
     borderRadius: 6,
     borderWidth: 2,
     borderColor: colors.surface,
   },
-  chipName: { fontSize: 13, fontWeight: '800', color: colors.text },
-  chipBreed: { fontSize: 10, color: colors.muted, textAlign: 'center' },
+  chipName: { fontSize: 16, fontWeight: '900', color: colors.text },
+  chipBreed: { fontSize: 12, color: colors.muted, fontWeight: '700' },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  metaText: { flex: 1, fontSize: 10, fontWeight: '900', color: colors.muted, backgroundColor: 'rgba(15,23,42,0.04)', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, textAlign: 'center' },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   scoreBadge: {
-    borderRadius: 10,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  scoreBadgeText: { fontSize: 10, fontWeight: '900' },
+  scoreBadgeText: { fontSize: 14, fontWeight: '900' },
+  statusCopy: { flex: 1, minWidth: 0 },
+  statusText: { fontSize: 12, fontWeight: '900', color: colors.primaryDark },
+  vaccineText: { fontSize: 10, fontWeight: '800', color: colors.muted, marginTop: 1 },
   addBtn: {
-    width: 94,
-    borderRadius: 20,
+    width: 124,
+    borderRadius: 24,
     borderWidth: 2,
     borderStyle: 'dashed',
-    borderColor: colors.primary + '60',
+    borderColor: colors.primary + '70',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: colors.primary + '08',
+    backgroundColor: colors.primary + '10',
   },
-  addLabel: { fontSize: 11, fontWeight: '800', color: colors.primary },
+  addLabel: { fontSize: 12, fontWeight: '900', color: colors.primary },
 });
-
-

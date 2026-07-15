@@ -5,6 +5,8 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AppScreen } from '../core/components/AppScreen';
 import { colors } from '../core/theme/colors';
 import { authService } from '../services/auth';
+import { biometricService } from '../services/biometric';
+import { authSecurityService } from '../services/security';
 import { paymentService } from '../services/payments';
 import { profileService, type ProfileOrder, type ProfilePayment } from '../services/profile';
 
@@ -198,25 +200,167 @@ export function PaymentMethodsScreen() {
 }
 
 export function ProfileSettingsScreen() {
-  const settings: SettingItem[] = [
-    { icon: 'bell-outline', title: 'Notifications', subtitle: 'Appointments, reminders, orders and community' },
-    { icon: 'theme-light-dark', title: 'Theme', subtitle: 'Dark mode and Material Design preferences' },
-    { icon: 'translate', title: 'Language', subtitle: 'Choose your preferred app language' },
-    { icon: 'lock-outline', title: 'Privacy & Security', subtitle: 'Permissions, biometrics and account safety' },
-    { icon: 'map-marker-outline', title: 'Location Permission', subtitle: 'Nearby clinics and GPS tracking' },
-    { icon: 'camera-outline', title: 'Camera & Storage', subtitle: 'Profile photos, prescriptions and documents' },
-    { icon: 'share-variant-outline', title: 'Share App', subtitle: 'Invite other pet parents' },
-    { icon: 'file-document-outline', title: 'Terms & Privacy', subtitle: 'Legal policies and data usage' },
-    { icon: 'delete-outline', title: 'Delete Account', subtitle: 'Remove your profile and app data' },
-  ];
+  const navigation = useNavigation<any>();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [userId, setUserId] = useState('');
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState('pet_owner');
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [devices, setDevices] = useState<Array<Record<string, any>>>([]);
+  const [history, setHistory] = useState<Array<Record<string, any>>>([]);
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const loadSecurity = useCallback(async () => {
+    const user = await authService.getCurrentUser();
+    const profile = await authService.getCurrentProfile();
+    if (!user) return;
+    setUserId(user.id);
+    setEmail(user.email ?? '');
+    setRole(profile?.role ?? 'pet_owner');
+    const [enabled, available, nextDevices, nextHistory] = await Promise.all([
+      biometricService.isEnabled(),
+      biometricService.isAvailable(),
+      authSecurityService.listDevices(user.id),
+      authSecurityService.listLoginHistory(user.id),
+    ]);
+    setBiometricEnabled(enabled);
+    setBiometricAvailable(available);
+    setDevices(nextDevices as Array<Record<string, any>>);
+    setHistory(nextHistory as Array<Record<string, any>>);
+  }, []);
+
+  useEffect(() => {
+    loadSecurity().catch(error => {
+      console.error('Unable to load security settings:', error);
+      Alert.alert('Security unavailable', error instanceof Error ? error.message : 'Please try again.');
+    }).finally(() => setLoading(false));
+  }, [loadSecurity]);
+
+  async function toggleBiometric() {
+    if (!userId) return;
+    try {
+      setSaving(true);
+      if (biometricEnabled) {
+        await biometricService.disable();
+        setBiometricEnabled(false);
+        Alert.alert('Biometric disabled', 'Biometric login has been disabled on this device.');
+        return;
+      }
+
+      if (!biometricAvailable) {
+        Alert.alert('Biometric unavailable', 'Set up Face ID, fingerprint, Touch ID, or passcode on this device first.');
+        return;
+      }
+
+      const enabled = await biometricService.enableAfterLogin(email, role as any);
+      setBiometricEnabled(enabled);
+      Alert.alert(enabled ? 'Biometric enabled' : 'Biometric not enabled', enabled ? 'You can now unlock PetCare+ with your device biometrics.' : 'A valid session is required before enabling biometric login.');
+    } catch (error) {
+      console.error('Unable to update biometric setting:', error);
+      Alert.alert('Update failed', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function changePassword() {
+    if (password.length < 8) {
+      Alert.alert('Weak password', 'Use at least 8 characters.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      Alert.alert('Password mismatch', 'Confirm password must match.');
+      return;
+    }
+    try {
+      setSaving(true);
+      await authService.updatePassword(password);
+      await authSecurityService.recordAudit({ actorId: userId, actorRole: role, action: 'auth.password_change', entityType: 'profile', entityId: userId, severity: 'warning' });
+      setPassword('');
+      setConfirmPassword('');
+      Alert.alert('Password changed', 'Your password has been updated.');
+    } catch (error) {
+      console.error('Unable to change password:', error);
+      Alert.alert('Password update failed', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function logoutOtherDevices() {
+    try {
+      setSaving(true);
+      await authService.signOutOtherDevices();
+      await loadSecurity();
+      Alert.alert('Other devices logged out', 'All other active sessions were revoked.');
+    } catch (error) {
+      Alert.alert('Logout failed', error instanceof Error ? error.message : 'Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function logoutAllDevices() {
+    Alert.alert('Logout all devices?', 'This will sign this account out everywhere, including this device.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Logout All',
+        style: 'destructive',
+        onPress: () => {
+          void (async () => {
+            await authService.signOutAllDevices();
+            navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+          })();
+        },
+      },
+    ]);
+  }
 
   return (
-    <ProfileShell title="Settings">
-      {settings.map(item => <InfoRow key={item.title} icon={item.icon} title={item.title} subtitle={item.subtitle} />)}
+    <ProfileShell title="Security Settings">
+      {loading ? <Text style={styles.mutedText}>Loading security settings...</Text> : (
+        <>
+          <View style={styles.infoRow}>
+            <View style={styles.infoIcon}><MaterialCommunityIcons name="fingerprint" size={22} color={colors.primary} /></View>
+            <View style={styles.infoText}>
+              <Text style={styles.infoTitle}>Biometric Login</Text>
+              <Text style={styles.infoSubtitle}>{biometricEnabled ? 'Enabled on this device' : biometricAvailable ? 'Available on this device' : 'Not configured on this device'}</Text>
+            </View>
+            <Pressable style={[styles.smallButton, biometricEnabled && styles.smallButtonDanger, saving && styles.disabledButton]} onPress={toggleBiometric} disabled={saving}>
+              <Text style={[styles.smallButtonText, biometricEnabled && styles.smallButtonDangerText]}>{biometricEnabled ? 'Disable' : 'Enable'}</Text>
+            </Pressable>
+          </View>
+
+          <Text style={styles.sectionLabel}>Change Password</Text>
+          <Field label="New Password" value={password} onChangeText={setPassword} />
+          <Field label="Confirm Password" value={confirmPassword} onChangeText={setConfirmPassword} />
+          <Pressable style={[styles.primaryButton, saving && styles.disabledButton]} onPress={changePassword} disabled={saving}>
+            <Text style={styles.primaryButtonText}>Change Password</Text>
+          </Pressable>
+
+          <Text style={styles.sectionLabel}>Active Sessions</Text>
+          {devices.length === 0 ? <EmptyState title="No device records" subtitle="Your trusted devices will appear here after the security migration is applied." /> : devices.map(device => (
+            <InfoRow key={String(device.id)} icon="cellphone-lock" title={String(device.device_name ?? 'Device')} subtitle={`${device.platform ?? 'unknown'} - Last seen ${String(device.last_seen_at ?? '')}`} />
+          ))}
+          <Pressable style={[styles.primaryButton, saving && styles.disabledButton]} onPress={logoutOtherDevices} disabled={saving}>
+            <Text style={styles.primaryButtonText}>Logout from Other Devices</Text>
+          </Pressable>
+          <Pressable style={[styles.primaryButton, styles.dangerButton]} onPress={logoutAllDevices}>
+            <Text style={styles.primaryButtonText}>Logout All Devices</Text>
+          </Pressable>
+
+          <Text style={styles.sectionLabel}>Login History</Text>
+          {history.length === 0 ? <Text style={styles.mutedText}>No login history yet.</Text> : history.slice(0, 8).map(item => (
+            <InfoRow key={String(item.id)} icon={item.success ? 'login' : 'alert-circle-outline'} title={`${item.login_method ?? 'login'} ${item.success ? 'success' : 'failed'}`} subtitle={String(item.created_at ?? '')} />
+          ))}
+        </>
+      )}
     </ProfileShell>
   );
 }
-
 export function HelpSupportScreen() {
   const items: SettingItem[] = [
     { icon: 'frequently-asked-questions', title: 'FAQ', subtitle: 'Common questions and answers' },
@@ -427,6 +571,32 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 13,
   },
+  sectionLabel: {
+    marginTop: 10,
+    color: colors.text,
+    fontWeight: '900',
+    fontSize: 15,
+  },
+  smallButton: {
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: colors.primary,
+  },
+  smallButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '900',
+    fontSize: 12,
+  },
+  smallButtonDanger: {
+    backgroundColor: '#FEE2E2',
+  },
+  smallButtonDangerText: {
+    color: colors.danger,
+  },
+  dangerButton: {
+    backgroundColor: colors.danger,
+  },
   emptyState: {
     minHeight: 180,
     borderRadius: 16,
@@ -449,5 +619,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 });
+
 
 

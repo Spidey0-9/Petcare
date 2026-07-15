@@ -6,10 +6,25 @@ import { AppointmentDetailsScreen } from '../screens/AppointmentDetailsScreen';
 import { AddDiagnosisScreen } from '../screens/AddDiagnosisScreen';
 import { RateAppointmentScreen } from '../screens/RateAppointmentScreen';
 
+export type SelectedHospitalParam = {
+  hospitalId: string;
+  hospitalName: string;
+  clinicId: string;
+  consultationFee: number;
+  doctorCount: number;
+  latitude: number | null;
+  longitude: number | null;
+  address: string;
+};
+
 export type AppointmentStackParamList = {
   CustomerAppointments: undefined;
   DoctorAppointments: undefined;
-  BookAppointment: { customerId: string };
+  BookAppointment: {
+    customerId?: string;
+    selectedHospital?: SelectedHospitalParam;
+    startAtDoctorSelection?: boolean;
+  } | undefined;
   AppointmentDetails: { appointmentId: string; isCustomer: boolean };
   AddDiagnosis: { appointmentId: string };
   RateAppointment: { appointmentId: string };
@@ -40,3 +55,4 @@ export function AppointmentNavigator({ role = 'CUSTOMER' }: Props) {
     </Stack.Navigator>
   );
 }
+

@@ -33,6 +33,10 @@ export const REALTIME_TABLES = [
   TABLES.favorites,
   TABLES.savedClinics,
   TABLES.messages,
+  TABLES.groomingClinics,
+  TABLES.groomers,
+  TABLES.groomingServices,
+  TABLES.groomingBookings,
 ] as const;
 
 type SubscriptionEntry = {
@@ -94,3 +98,4 @@ export function subscribeToTables(scope: string, tables: ReadonlyArray<RealtimeT
 export function getRealtimeRegistrySnapshot() {
   return Array.from(registry.entries()).map(([key, entry]) => ({ key, handlerCount: entry.handlers.size }));
 }
+

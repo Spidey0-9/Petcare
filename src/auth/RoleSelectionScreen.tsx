@@ -10,11 +10,12 @@ import type { UserRole } from '../types';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'RoleSelection'>;
 
-type SelectableRole = Extract<UserRole, 'pet_owner' | 'doctor'>;
+type SelectableRole = Extract<UserRole, 'pet_owner' | 'doctor' | 'groomer'>;
 
 const roles: Array<{ value: SelectableRole; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [
   { value: 'pet_owner', label: 'Pet Owner', icon: 'paw' },
   { value: 'doctor', label: 'Veterinarian', icon: 'doctor' },
+  { value: 'groomer', label: 'Groomer', icon: 'content-cut' },
 ];
 
 export function RoleSelectionScreen({ navigation }: Props) {

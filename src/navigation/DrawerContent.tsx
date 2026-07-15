@@ -1,455 +1,178 @@
 import React, { useEffect, useRef } from 'react';
-import {
-  Animated,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Animated, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { DrawerContentComponentProps } from '@react-navigation/drawer';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../contexts';
-import { colors } from '../core/theme/colors';
+import { colors, gradients, radii, shadows } from '../core/theme/colors';
 
-// ── Menu item definition ─────────────────────────────────────────
+type DrawerTarget =
+  | { kind: 'home'; screen: string }
+  | { kind: 'tab'; tab: string; params?: Record<string, unknown> }
+  | { kind: 'profile'; screen: string }
+  | { kind: 'logout' };
+
 interface MenuItem {
   key: string;
   label: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   color: string;
-  screen?: string;
-  tab?: string;
+  group: 'Care' | 'Services' | 'Account' | 'Legal';
+  target: DrawerTarget;
   isDanger?: boolean;
 }
 
 const MENU_ITEMS: MenuItem[] = [
-  { key: 'Home',           label: 'Home',               icon: 'home',             color: colors.primary   },
-  { key: 'Pets',           label: 'My Pets',            icon: 'paw',              color: '#FF8F00'        },
-  { key: 'Appointments',   label: 'Appointments',       icon: 'calendar-month',   color: '#0EA5E9'        },
-  { key: 'Reports',        label: 'Medical Records',    icon: 'file-document',    color: '#8B5CF6'        },
-  { key: 'Vaccination',    label: 'Vaccination Tracker', icon: 'needle',          color: '#22C55E'        },
-  { key: 'AiAssistant',    label: 'AI Health Assistant', icon: 'robot',           color: '#6C63FF'        },
-  { key: 'Pharmacy',       label: 'Pharmacy',           icon: 'pill',             color: '#EF4444'        },
-  { key: 'Shop',           label: 'Pet Store',          icon: 'shopping',         color: '#EC4899'        },
-  { key: 'Community',      label: 'Community',          icon: 'account-group',    color: '#14B8A6'        },
-  { key: 'Gps',            label: 'Nearby Clinics',     icon: 'map-marker',       color: '#F59E0B'        },
-  { key: 'Emergency',      label: 'Emergency SOS',      icon: 'ambulance',        color: '#DC2626', isDanger: true },
-  { key: 'Settings',       label: 'Settings',           icon: 'cog',              color: colors.muted     },
-  { key: 'Logout',         label: 'Logout',             icon: 'logout',           color: '#EF4444', isDanger: true },
+  { key: 'Home', label: 'Home', icon: 'home-variant', color: colors.primary, group: 'Care', target: { kind: 'home', screen: 'HomeMain' } },
+  { key: 'Pets', label: 'My Pets', icon: 'paw', color: '#FF8F00', group: 'Care', target: { kind: 'home', screen: 'Pets' } },
+  { key: 'Appointments', label: 'Appointments', icon: 'calendar-heart', color: '#0EA5E9', group: 'Care', target: { kind: 'tab', tab: 'Appointments' } },
+  { key: 'Doctors', label: 'Doctors', icon: 'doctor', color: '#06B6D4', group: 'Care', target: { kind: 'tab', tab: 'Appointments' } },
+  { key: 'Hospitals', label: 'Hospitals', icon: 'hospital-building', color: '#F59E0B', group: 'Care', target: { kind: 'home', screen: 'Gps' } },
+  { key: 'Grooming', label: 'Nearby Groomers', icon: 'content-cut', color: '#EC4899', group: 'Services', target: { kind: 'home', screen: 'Grooming' } },
+  { key: 'Pharmacy', label: 'Pharmacy', icon: 'pill', color: '#EF4444', group: 'Services', target: { kind: 'home', screen: 'Pharmacy' } },
+  { key: 'Nutrition', label: 'Nutrition', icon: 'food-apple', color: colors.accent, group: 'Services', target: { kind: 'home', screen: 'Nutrition' } },
+  { key: 'Reports', label: 'Medical Records', icon: 'file-document', color: '#8B5CF6', group: 'Services', target: { kind: 'home', screen: 'Reports' } },
+  { key: 'Community', label: 'Community', icon: 'account-group', color: '#14B8A6', group: 'Services', target: { kind: 'home', screen: 'Community' } },
+  { key: 'AiAssistant', label: 'AI Assistant', icon: 'robot', color: '#6C63FF', group: 'Services', target: { kind: 'home', screen: 'AiAssistant' } },
+  { key: 'Notifications', label: 'Notifications', icon: 'bell-outline', color: colors.primaryDark, group: 'Account', target: { kind: 'home', screen: 'Notifications' } },
+  { key: 'Payments', label: 'Payments', icon: 'credit-card-outline', color: '#0EA5E9', group: 'Account', target: { kind: 'home', screen: 'Billing' } },
+  { key: 'Membership', label: 'Membership', icon: 'crown-outline', color: '#F59E0B', group: 'Account', target: { kind: 'profile', screen: 'PremiumMembership' } },
+  { key: 'Emergency', label: 'Emergency Contacts', icon: 'ambulance', color: '#DC2626', group: 'Account', target: { kind: 'home', screen: 'Emergency' }, isDanger: true },
+  { key: 'Settings', label: 'Settings', icon: 'cog-outline', color: colors.muted, group: 'Account', target: { kind: 'profile', screen: 'ProfileSettings' } },
+  { key: 'Help', label: 'Help & Support', icon: 'lifebuoy', color: colors.secondary, group: 'Account', target: { kind: 'profile', screen: 'HelpSupport' } },
+  { key: 'Privacy', label: 'Privacy Policy', icon: 'shield-lock-outline', color: colors.muted, group: 'Legal', target: { kind: 'home', screen: 'HomeMain' } },
+  { key: 'Terms', label: 'Terms', icon: 'file-sign', color: colors.muted, group: 'Legal', target: { kind: 'home', screen: 'HomeMain' } },
+  { key: 'About', label: 'About', icon: 'information-outline', color: colors.muted, group: 'Legal', target: { kind: 'home', screen: 'HomeMain' } },
+  { key: 'Logout', label: 'Sign Out', icon: 'logout', color: '#EF4444', group: 'Legal', target: { kind: 'logout' }, isDanger: true },
 ];
 
-/**
- * Custom Drawer Content
- * - Profile header reads real name/email/role from AuthContext
- * - 13 menu items with icons and active highlight
- * - Animated item press
- * - Logout clears session and navigates back to Login
- */
+function roleLabel(role?: string | null) {
+  if (role === 'doctor') return 'Doctor';
+  if (role === 'groomer') return 'Groomer';
+  if (role === 'admin' || role === 'super_admin') return 'Super Admin';
+  return 'Pet Owner';
+}
+
 export function DrawerContent(props: DrawerContentComponentProps) {
-  const { navigation, state } = props;
+  const { navigation } = props;
   const insets = useSafeAreaInsets();
   const { profile, signOut } = useAuth();
-  const fadeAnim  = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(-20)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(-16)).current;
+  const displayName = profile?.full_name?.trim() || 'Pet Parent';
+  const displayEmail = profile?.email?.trim() || '';
+  const initial = displayName.charAt(0).toUpperCase() || 'P';
+  const groups = ['Care', 'Services', 'Account', 'Legal'] as const;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim,  { toValue: 1, duration: 400, useNativeDriver: true }),
-      Animated.spring(slideAnim, { toValue: 0, friction: 8,   useNativeDriver: true }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 380, useNativeDriver: true }),
+      Animated.spring(slideAnim, { toValue: 0, friction: 8, useNativeDriver: true }),
     ]).start();
-  }, []);
-
-  const activeRouteName = state.routeNames[state.index];
-
-  const displayName  = profile?.full_name?.trim() || 'Pet Owner';
-  const displayEmail = profile?.email?.trim()     || '';
-  const displayRole  = profile?.role === 'doctor' ? 'Doctor' : 'Pet Owner';
+  }, [fadeAnim, slideAnim]);
 
   async function handleLogout() {
     navigation.closeDrawer();
     await signOut();
-    // Reset the entire navigation stack back to Login so there is no
-    // way to navigate "back" to authenticated screens after sign-out.
-    (navigation as any).reset({
-      index: 0,
-      routes: [{ name: 'Login' }],
-    });
+    (navigation as never as { reset: (state: { index: number; routes: Array<{ name: string }> }) => void }).reset({ index: 0, routes: [{ name: 'Login' }] });
   }
 
-  const handleNav = (item: MenuItem) => {
-    if (item.key === 'Logout') {
-      handleLogout();
+  function navigateTo(target: DrawerTarget) {
+    if (target.kind === 'logout') {
+      void handleLogout();
       return;
     }
-    if (item.key === 'Shop') {
-      navigation.closeDrawer();
-      (navigation as any).navigate('MainTabs', { screen: 'Shop' });
-      return;
-    }
-    if (item.key === 'Appointments') {
-      navigation.closeDrawer();
-      (navigation as any).navigate('MainTabs', { screen: 'Appointments' });
-      return;
-    }
-    // Everything else lives in the Home stack
     navigation.closeDrawer();
-    (navigation as any).navigate('MainTabs', {
-      screen: 'Home',
-      params: { screen: item.key === 'Home' ? 'HomeMain' : item.key },
-    });
-  };
+    if (target.kind === 'tab') {
+      (navigation as never as { navigate: (name: string, params?: unknown) => void }).navigate('MainTabs', { screen: target.tab, params: target.params });
+      return;
+    }
+    if (target.kind === 'profile') {
+      (navigation as never as { navigate: (name: string, params?: unknown) => void }).navigate('MainTabs', { screen: 'Profile', params: { screen: target.screen } });
+      return;
+    }
+    (navigation as never as { navigate: (name: string, params?: unknown) => void }).navigate('MainTabs', { screen: 'Home', params: { screen: target.screen } });
+  }
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
-      {/* ── Profile Header ────────────────────────────────── */}
-      <Animated.View
-        style={[
-          styles.profileSection,
-          { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
-        ]}
-      >
-        <View style={styles.avatarWrapper}>
-          <View style={styles.avatar}>
-            <MaterialCommunityIcons name="account" size={44} color="#fff" />
-          </View>
-          <View style={styles.onlineDot} />
-        </View>
-        <View style={styles.profileInfo}>
-          <Text style={styles.profileName} numberOfLines={1}>{displayName}</Text>
-          {!!displayEmail && (
-            <Text style={styles.profileEmail} numberOfLines={1}>{displayEmail}</Text>
-          )}
-          <View style={styles.badgeRow}>
-            <View style={styles.badge}>
-              <MaterialCommunityIcons
-                name={profile?.role === 'doctor' ? 'doctor' : 'paw'}
-                size={10}
-                color={colors.primary}
-              />
-              <Text style={styles.badgeText}>{displayRole}</Text>
+    <View style={[styles.root, { paddingTop: insets.top }]}> 
+      <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+        <LinearGradient colors={gradients.dark} style={styles.headerCard}>
+          <View style={styles.headerTop}>
+            <View style={styles.avatarShell}>
+              {profile?.avatar_url ? <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} /> : <Text style={styles.avatarInitial}>{initial}</Text>}
+            </View>
+            <View style={styles.petAvatarShell}>
+              <MaterialCommunityIcons name="paw" size={20} color={colors.primary} />
             </View>
           </View>
-        </View>
+          <Text style={styles.name} numberOfLines={1}>{displayName}</Text>
+          {!!displayEmail && <Text style={styles.email} numberOfLines={1}>{displayEmail}</Text>}
+          <View style={styles.profilePills}>
+            <View style={styles.profilePill}><MaterialCommunityIcons name="crown-outline" size={12} color="#fff" /><Text style={styles.profilePillText}>Membership</Text></View>
+            <View style={styles.profilePill}><MaterialCommunityIcons name="heart-pulse" size={12} color="#fff" /><Text style={styles.profilePillText}>Health --</Text></View>
+            <View style={styles.profilePill}><Text style={styles.profilePillText}>{roleLabel(profile?.role)}</Text></View>
+          </View>
+        </LinearGradient>
       </Animated.View>
 
-      <View style={styles.divider} />
-
-      {/* ── Menu Items ────────────────────────────────────── */}
-      <ScrollView showsVerticalScrollIndicator={false} style={styles.scroll}>
-        {MENU_ITEMS.map((item, index) => (
-          <DrawerItem
-            key={item.key}
-            item={item}
-            index={index}
-            isActive={activeRouteName === item.key}
-            onPress={() => handleNav(item)}
-          />
+      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        {groups.map(group => (
+          <View key={group} style={styles.groupBlock}>
+            <Text style={styles.groupTitle}>{group}</Text>
+            {MENU_ITEMS.filter(item => item.group === group).map((item, index) => (
+              <DrawerItem key={item.key} item={item} index={index} onPress={() => navigateTo(item.target)} />
+            ))}
+          </View>
         ))}
-        <View style={{ height: 40 }} />
       </ScrollView>
-
-      {/* ── App Version ─────────────────────────────────────── */}
-      <View style={styles.footer}>
-        <MaterialCommunityIcons name="paw" size={14} color={colors.muted} />
-        <Text style={styles.version}>PetCare+ v1.0.0</Text>
-      </View>
     </View>
   );
 }
 
-// ── Individual item ───────────────────────────────────────────────
-function DrawerItem({
-  item,
-  index,
-  isActive,
-  onPress,
-}: {
-  item: MenuItem;
-  index: number;
-  isActive: boolean;
-  onPress: () => void;
-}) {
-  const scaleAnim = useRef(new Animated.Value(0.95)).current;
-  const fadeAnim  = useRef(new Animated.Value(0)).current;
+function DrawerItem({ item, index, onPress }: { item: MenuItem; index: number; onPress: () => void }) {
+  const scaleAnim = useRef(new Animated.Value(0.97)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 300,
-        delay: index * 40,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        friction: 8,
-        delay: index * 40,
-        useNativeDriver: true,
-      }),
+      Animated.timing(fadeAnim, { toValue: 1, duration: 240, delay: index * 22, useNativeDriver: true }),
+      Animated.spring(scaleAnim, { toValue: 1, friction: 8, delay: index * 22, useNativeDriver: true }),
     ]).start();
-  }, []);
-
-  const onPressIn  = () =>
-    Animated.spring(scaleAnim, { toValue: 0.95, useNativeDriver: true, friction: 8 }).start();
-  const onPressOut = () =>
-    Animated.spring(scaleAnim, { toValue: 1,    useNativeDriver: true, friction: 6 }).start();
-
-  if (item.key === 'Settings') {
-    return (
-      <>
-        <View style={styles.sectionDivider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.sectionLabel}>GENERAL</Text>
-          <View style={styles.dividerLine} />
-        </View>
-        <AnimatedItem
-          item={item}
-          isActive={isActive}
-          scaleAnim={scaleAnim}
-          fadeAnim={fadeAnim}
-          onPress={onPress}
-          onPressIn={onPressIn}
-          onPressOut={onPressOut}
-        />
-      </>
-    );
-  }
-
-  if (item.key === 'Emergency') {
-    return (
-      <>
-        <View style={styles.sectionDivider}>
-          <View style={styles.dividerLine} />
-          <Text style={[styles.sectionLabel, { color: '#DC2626' }]}>SOS</Text>
-          <View style={styles.dividerLine} />
-        </View>
-        <AnimatedItem
-          item={item}
-          isActive={isActive}
-          scaleAnim={scaleAnim}
-          fadeAnim={fadeAnim}
-          onPress={onPress}
-          onPressIn={onPressIn}
-          onPressOut={onPressOut}
-        />
-      </>
-    );
-  }
+  }, [fadeAnim, index, scaleAnim]);
 
   return (
-    <AnimatedItem
-      item={item}
-      isActive={isActive}
-      scaleAnim={scaleAnim}
-      fadeAnim={fadeAnim}
-      onPress={onPress}
-      onPressIn={onPressIn}
-      onPressOut={onPressOut}
-    />
-  );
-}
-
-function AnimatedItem({
-  item,
-  isActive,
-  scaleAnim,
-  fadeAnim,
-  onPress,
-  onPressIn,
-  onPressOut,
-}: {
-  item: MenuItem;
-  isActive: boolean;
-  scaleAnim: Animated.Value;
-  fadeAnim: Animated.Value;
-  onPress: () => void;
-  onPressIn: () => void;
-  onPressOut: () => void;
-}) {
-  return (
-    <Animated.View
-      style={[
-        styles.itemWrapper,
-        { opacity: fadeAnim, transform: [{ scale: scaleAnim }] },
-      ]}
-    >
-      <Pressable
-        onPress={onPress}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
-        android_ripple={{ color: item.color + '20' }}
-        style={[
-          styles.item,
-          isActive && { backgroundColor: item.color + '18' },
-          isActive && { borderLeftColor: item.color, borderLeftWidth: 3 },
-        ]}
-      >
-        <View
-          style={[
-            styles.itemIcon,
-            { backgroundColor: isActive ? item.color + '20' : item.color + '10' },
-          ]}
-        >
-          <MaterialCommunityIcons name={item.icon} size={20} color={item.color} />
+    <Animated.View style={{ opacity: fadeAnim, transform: [{ scale: scaleAnim }] }}>
+      <Pressable style={styles.item} onPress={onPress} android_ripple={{ color: item.color + '18' }}>
+        <View style={[styles.itemIcon, { backgroundColor: item.color + '14' }]}>
+          <MaterialCommunityIcons name={item.icon} size={19} color={item.color} />
         </View>
-        <Text
-          style={[
-            styles.itemLabel,
-            { color: isActive ? item.color : item.isDanger ? item.color : colors.text },
-            isActive && { fontWeight: '900' },
-          ]}
-        >
-          {item.label}
-        </Text>
-        {isActive && (
-          <MaterialCommunityIcons name="chevron-right" size={16} color={item.color} />
-        )}
+        <Text style={[styles.itemLabel, item.isDanger && { color: item.color }]} numberOfLines={1}>{item.label}</Text>
+        <MaterialCommunityIcons name="chevron-right" size={16} color={colors.muted} />
       </Pressable>
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: colors.surface,
-  },
-  profileSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-    gap: 14,
-    backgroundColor: colors.primary + '08',
-  },
-  avatarWrapper: {
-    position: 'relative',
-  },
-  avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  onlineDot: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: colors.success,
-    borderWidth: 2,
-    borderColor: colors.surface,
-  },
-  profileInfo: {
-    flex: 1,
-    gap: 4,
-  },
-  profileName: {
-    fontSize: 17,
-    fontWeight: '900',
-    color: colors.text,
-  },
-  profileEmail: {
-    fontSize: 12,
-    color: colors.muted,
-    fontWeight: '600',
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginTop: 4,
-  },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: colors.primary + '15',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  badgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: colors.primary,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: colors.line,
-    marginHorizontal: 20,
-    marginVertical: 4,
-  },
-  scroll: {
-    flex: 1,
-  },
-  itemWrapper: {
-    marginHorizontal: 10,
-    marginVertical: 1,
-  },
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    borderRadius: 14,
-    borderLeftWidth: 0,
-    borderLeftColor: 'transparent',
-  },
-  itemIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  itemLabel: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  sectionDivider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    marginTop: 4,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.line,
-  },
-  sectionLabel: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: colors.muted,
-    letterSpacing: 1.5,
-  },
-  footer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    paddingTop: 12,
-  },
-  version: {
-    fontSize: 12,
-    color: colors.muted,
-    fontWeight: '600',
-  },
+  root: { flex: 1, backgroundColor: colors.background, paddingHorizontal: 14 },
+  headerCard: { borderRadius: radii.xxl, padding: 18, marginTop: 10, overflow: 'hidden', ...shadows.premium },
+  headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  avatarShell: { width: 64, height: 64, borderRadius: 24, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderWidth: 2, borderColor: 'rgba(255,255,255,0.38)' },
+  avatarImage: { width: '100%', height: '100%' },
+  avatarInitial: { color: '#fff', fontSize: 24, fontWeight: '900' },
+  petAvatarShell: { width: 44, height: 44, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.92)', alignItems: 'center', justifyContent: 'center' },
+  name: { color: '#fff', fontSize: 21, fontWeight: '900', marginTop: 14 },
+  email: { color: 'rgba(255,255,255,0.72)', fontSize: 12, fontWeight: '700', marginTop: 3 },
+  profilePills: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 14 },
+  profilePill: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 999, paddingHorizontal: 9, paddingVertical: 6, backgroundColor: 'rgba(255,255,255,0.16)' },
+  profilePillText: { color: '#fff', fontSize: 10, fontWeight: '900' },
+  scroll: { flex: 1, marginTop: 14 },
+  scrollContent: { paddingBottom: 28 },
+  groupBlock: { marginBottom: 16 },
+  groupTitle: { color: colors.muted, fontSize: 11, fontWeight: '900', textTransform: 'uppercase', marginBottom: 8, paddingHorizontal: 8 },
+  item: { minHeight: 48, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.78)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.9)', flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, marginBottom: 8, ...shadows.soft },
+  itemIcon: { width: 34, height: 34, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  itemLabel: { flex: 1, color: colors.text, fontSize: 13, fontWeight: '900' },
 });
